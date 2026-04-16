@@ -1,0 +1,4 @@
+= rhpds.demo_workloads
+:toc: macro
+:toc-title: Table of Contents
+:toclevels: 3
