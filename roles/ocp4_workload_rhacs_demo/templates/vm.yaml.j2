@@ -1,0 +1,104 @@
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: {{ ocp4_workload_rhacs_demo_vm_name }}
+  namespace: {{ ocp4_workload_rhacs_demo_vm_namespace }}
+  labels:
+    app: {{ ocp4_workload_rhacs_demo_vm_name }}
+spec:
+  dataVolumeTemplates:
+  - metadata:
+      name: {{ ocp4_workload_rhacs_demo_vm_name }}-volume
+    spec:
+      sourceRef:
+        kind: DataSource
+        name: {{ ocp4_workload_rhacs_demo_vm_datasource_name }}
+        namespace: {{ ocp4_workload_rhacs_demo_vm_datasource_namespace }}
+      storage:
+        resources:
+          requests:
+            storage: {{ ocp4_workload_rhacs_demo_vm_disksize }}
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        network.kubevirt.io/headlessService: headless
+        kubevirt.io/domain: {{ ocp4_workload_rhacs_demo_vm_name }}
+        kubevirt.io/size: small
+    spec:
+      architecture: amd64
+      domain:
+        cpu:
+          cores: {{ ocp4_workload_rhacs_demo_vm_cpu_cores | int }}
+          sockets: {{ ocp4_workload_rhacs_demo_vm_cpu_sockets | int }}
+          threads: {{ ocp4_workload_rhacs_demo_vm_cpu_threads | int }}
+        memory:
+          guest: {{ ocp4_workload_rhacs_demo_vm_memory_guest }}
+        devices:
+          autoattachVSOCK: true
+          disks:
+          - name: rootdisk
+            bootOrder: 1
+          - name: cloudinitdisk
+            disk:
+              bus: virtio
+          interfaces:
+            - masquerade: {}
+              model: virtio
+              name: default
+          rng: {}
+        features:
+          acpi: {}
+          smm:
+            enabled: true
+        firmware:
+          bootloader:
+            efi: {}
+        machine:
+          type: pc-q35-rhel9.6.0
+        resources: {}
+      networks:
+        - name: default
+          pod: {}
+      subdomain: headless
+      volumes:
+      - name: rootdisk
+        dataVolume:
+          name: {{ ocp4_workload_rhacs_demo_vm_name }}-volume
+      - name: cloudinitdisk
+        cloudInitNoCloud:
+          userData: |
+            #cloud-config
+            users:
+              - name: {{ ocp4_workload_rhacs_demo_vm_user | trim }}
+                groups: wheel
+                sudo: ALL=(ALL) NOPASSWD:ALL
+                lock_passwd: false
+                shell: /bin/bash
+                plain_text_passwd: {{ ocp4_workload_rhacs_demo_vm_password | trim }}
+            chpasswd:
+              expire: false
+            ssh_pwauth: true
+            runcmd:
+{% if ocp4_workload_rhacs_demo_vm_satellite_url | trim | length > 0 %}
+              - curl -k -o /tmp/katello-ca-consumer-latest.noarch.rpm https://{{ ocp4_workload_rhacs_demo_vm_satellite_url | trim }}/pub/katello-ca-consumer-latest.noarch.rpm
+              - rpm -Uvh /tmp/katello-ca-consumer-latest.noarch.rpm
+              - |
+                subscription-manager register \
+                  --activationkey="{{ ocp4_workload_rhacs_demo_vm_satellite_activationkey | trim }}" \
+                  --org="{{ ocp4_workload_rhacs_demo_vm_satellite_org | trim }}" \
+                  --name="rhel-webserver-{{ guid }}" \
+                  --force
+              - subscription-manager release --set=10
+              - |
+                subscription-manager repos \
+                --enable=rhel-10-for-x86_64-baseos-rpms \
+                --enable=rhel-10-for-x86_64-appstream-rpms
+{% endif %}
+{% if ocp4_workload_rhacs_demo_vm_init_script_url | trim | length > 0 %}
+              - curl -sL -o /tmp/init.sh {{ ocp4_workload_rhacs_demo_vm_init_script_url | trim }}
+              - chmod +x /tmp/init.sh
+              - /tmp/init.sh
+{% endif %}
+              - echo "Setup complete"
