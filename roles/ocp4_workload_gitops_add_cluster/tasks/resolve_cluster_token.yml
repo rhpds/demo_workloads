@@ -1,12 +1,12 @@
 ---
 # Resolves a token for a single cluster. If the kubeconfig
-# already has a token, uses it directly. Otherwise, logs in
-# using client-certificate credentials to obtain one.
+# already has a token, uses it directly. Otherwise, creates
+# a cluster-admin service account and generates a token.
 #
 # Input:  _cluster (dict with name, server, token, client_certificate_data, client_key_data, ca_data)
 # Appends to: ocp4_workload_gitops_add_cluster_new_clusters
 
-- name: "Log in to obtain token - {{ _cluster.name }}"
+- name: "Create SA and obtain token - {{ _cluster.name }}"
   when: _cluster.token | default('') | length == 0
   block:
     - name: "Create temp credential directory - {{ _cluster.name }}"
@@ -15,49 +15,73 @@
         state: directory
         mode: "0700"
 
-    - name: "Write client certificate - {{ _cluster.name }}"
+    - name: "Write temporary kubeconfig - {{ _cluster.name }}"
       ansible.builtin.copy:
-        content: "{{ _cluster.client_certificate_data | b64decode }}"
-        dest: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.crt"
+        content: |
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - cluster:
+              certificate-authority-data: {{ _cluster.ca_data }}
+              server: {{ _cluster.server }}
+            name: {{ _cluster.name }}
+          contexts:
+          - context:
+              cluster: {{ _cluster.name }}
+              user: admin
+            name: admin
+          current-context: admin
+          users:
+          - name: admin
+            user:
+              client-certificate-data: {{ _cluster.client_certificate_data }}
+              client-key-data: {{ _cluster.client_key_data }}
+        dest: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.kubeconfig"
         mode: "0600"
 
-    - name: "Write client key - {{ _cluster.name }}"
-      ansible.builtin.copy:
-        content: "{{ _cluster.client_key_data | b64decode }}"
-        dest: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.key"
-        mode: "0600"
+    - name: "Create cluster-admin service account - {{ _cluster.name }}"
+      ansible.builtin.command:
+        cmd: >-
+          oc create sa cluster-admin -n openshift-config
+          --kubeconfig={{ output_dir }}/cluster_creds/{{ _cluster.name }}.kubeconfig
+      register: _sa_result
+      changed_when: _sa_result.rc == 0
+      failed_when: _sa_result.rc != 0 and 'already exists' not in _sa_result.stderr
 
-    - name: "Request token via OAuth authorize endpoint - {{ _cluster.name }}"
-      ansible.builtin.uri:
-        url: "{{ _cluster.server }}/oauth/authorize?response_type=token&client_id=openshift-challenging-client"
-        method: GET
-        client_cert: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.crt"
-        client_key: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.key"
-        validate_certs: "{{ not (ocp4_workload_gitops_add_cluster_cluster_insecure | bool) }}"
-        follow_redirects: none
-        status_code: 302
-      register: _oauth_response
+    - name: "Grant cluster-admin role to service account - {{ _cluster.name }}"
+      ansible.builtin.command:
+        cmd: >-
+          oc adm policy add-cluster-role-to-user cluster-admin
+          -z cluster-admin -n openshift-config
+          --kubeconfig={{ output_dir }}/cluster_creds/{{ _cluster.name }}.kubeconfig
+      register: _crb_result
+      changed_when: "'added' in _crb_result.stdout"
 
-    - name: "Extract token from OAuth redirect - {{ _cluster.name }}"
+    - name: "Generate token for cluster-admin SA - {{ _cluster.name }}"
+      ansible.builtin.command:
+        cmd: >-
+          oc create token cluster-admin -n openshift-config
+          --duration=87600h
+          --kubeconfig={{ output_dir }}/cluster_creds/{{ _cluster.name }}.kubeconfig
+      register: _token_result
+      changed_when: false
+
+    - name: "Set resolved token - {{ _cluster.name }}"
       ansible.builtin.set_fact:
-        _resolved_token: >-
-          {{ _oauth_response.location | regex_search('access_token=([^&]+)', '\1') | first }}
+        _resolved_token: "{{ _token_result.stdout }}"
 
   always:
-    - name: "Clean up temp credential files - {{ _cluster.name }}"
+    - name: "Clean up temp kubeconfig - {{ _cluster.name }}"
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.kubeconfig"
         state: absent
-      loop:
-        - "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.crt"
-        - "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.key"
 
 - name: "Use existing token - {{ _cluster.name }}"
   when: _cluster.token | default('') | length > 0
   ansible.builtin.set_fact:
     _resolved_token: "{{ _cluster.token }}"
 
-- name: "Append cluster to new clusters list - {{ _cluster.name }}"
+- name: "Append cluster to credentials list - {{ _cluster.name }}"
   ansible.builtin.set_fact:
     ocp4_workload_gitops_add_cluster_new_clusters: >-
       {{ ocp4_workload_gitops_add_cluster_new_clusters + [
