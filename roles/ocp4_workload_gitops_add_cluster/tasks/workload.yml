@@ -54,6 +54,10 @@
   loop_control:
     loop_var: _kubeconfig_path
 
+- name: Build credentials for clusters not yet in ArgoCD
+  when: _ocp4_workload_gitops_add_cluster_cluster_info | length > 0
+  ansible.builtin.include_tasks: build_cluster_credentials.yml
+
 - name: Fetch files to the controller
   delegate_to: "{{ groups['bastions'][0] }}"
   become: true

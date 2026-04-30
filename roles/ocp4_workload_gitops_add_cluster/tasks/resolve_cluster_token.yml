@@ -1,0 +1,69 @@
+---
+# Resolves a token for a single cluster. If the kubeconfig
+# already has a token, uses it directly. Otherwise, logs in
+# using client-certificate credentials to obtain one.
+#
+# Input:  _cluster (dict with name, server, token, client_certificate_data, client_key_data, ca_data)
+# Appends to: ocp4_workload_gitops_add_cluster_new_clusters
+
+- name: "Log in to obtain token - {{ _cluster.name }}"
+  when: _cluster.token | default('') | length == 0
+  block:
+    - name: "Create temp credential directory - {{ _cluster.name }}"
+      ansible.builtin.file:
+        path: "{{ output_dir }}/cluster_creds"
+        state: directory
+        mode: "0700"
+
+    - name: "Write client certificate - {{ _cluster.name }}"
+      ansible.builtin.copy:
+        content: "{{ _cluster.client_certificate_data | b64decode }}"
+        dest: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.crt"
+        mode: "0600"
+
+    - name: "Write client key - {{ _cluster.name }}"
+      ansible.builtin.copy:
+        content: "{{ _cluster.client_key_data | b64decode }}"
+        dest: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.key"
+        mode: "0600"
+
+    - name: "Request token via OAuth authorize endpoint - {{ _cluster.name }}"
+      ansible.builtin.uri:
+        url: "{{ _cluster.server }}/oauth/authorize?response_type=token&client_id=openshift-challenging-client"
+        method: GET
+        client_cert: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.crt"
+        client_key: "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.key"
+        validate_certs: "{{ not (ocp4_workload_gitops_add_cluster_cluster_insecure | bool) }}"
+        follow_redirects: none
+        status_code: 302
+      register: _oauth_response
+
+    - name: "Extract token from OAuth redirect - {{ _cluster.name }}"
+      ansible.builtin.set_fact:
+        _resolved_token: >-
+          {{ _oauth_response.location | regex_search('access_token=([^&]+)', '\1') | first }}
+
+  always:
+    - name: "Clean up temp credential files - {{ _cluster.name }}"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.crt"
+        - "{{ output_dir }}/cluster_creds/{{ _cluster.name }}.key"
+
+- name: "Use existing token - {{ _cluster.name }}"
+  when: _cluster.token | default('') | length > 0
+  ansible.builtin.set_fact:
+    _resolved_token: "{{ _cluster.token }}"
+
+- name: "Append cluster to new clusters list - {{ _cluster.name }}"
+  ansible.builtin.set_fact:
+    ocp4_workload_gitops_add_cluster_new_clusters: >-
+      {{ ocp4_workload_gitops_add_cluster_new_clusters + [
+        {
+          'name': _cluster.name,
+          'api_url': _cluster.server,
+          'token': _resolved_token
+        }
+      ] }}
