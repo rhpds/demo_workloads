@@ -47,6 +47,10 @@
   ansible.builtin.debug:
     msg: "Found kubeconfig files: {{ _kubeconfig_files.files | map(attribute='path') | list }}"
 
+- name: Initialize cumulative cluster info list
+  ansible.builtin.set_fact:
+    _ocp4_workload_gitops_add_cluster_all_cluster_info: []
+
 - name: Process each kubeconfig file
   when: _kubeconfig_files.files | length > 0
   ansible.builtin.include_tasks: add_cluster_from_kubeconfig.yml
@@ -54,8 +58,10 @@
   loop_control:
     loop_var: _kubeconfig_path
 
-- name: Build credentials for clusters not yet in ArgoCD
-  when: _ocp4_workload_gitops_add_cluster_cluster_info | length > 0
+# --- Create credentials and put in user_data for clusters not yet in ArgoCD ---
+
+- name: Create credentials and put in user_data for clusters not yet in ArgoCD ---
+  when: _ocp4_workload_gitops_add_cluster_all_cluster_info | length > 0
   ansible.builtin.include_tasks: build_cluster_credentials.yml
 
 - name: Fetch files to the controller
