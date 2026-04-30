@@ -10,8 +10,7 @@ ocp4_workload_gitops_add_cluster_kubeconfig_pattern: "*kubeconfig*"
 ocp4_workload_gitops_add_cluster_argocd_namespace: openshift-gitops
 
 # Whether to skip TLS verification when ArgoCD connects to discovered clusters.
-# defaults to secure because we usually have the caData from kubeconfig
-ocp4_workload_gitops_add_cluster_cluster_insecure: false
+ocp4_workload_gitops_add_cluster_cluster_insecure: true
 
 # Dict of clusters to add, keyed by cluster name.
 # Each entry requires 'api_url' and 'api_token'.
