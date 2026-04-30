@@ -81,13 +81,12 @@
   ansible.builtin.set_fact:
     _resolved_token: "{{ _cluster.token }}"
 
-- name: "Append cluster to credentials list - {{ _cluster.name }}"
+- name: "Add cluster to credentials dict - {{ _cluster.name }}"
   ansible.builtin.set_fact:
     ocp4_workload_gitops_add_cluster_new_clusters: >-
-      {{ ocp4_workload_gitops_add_cluster_new_clusters + [
-        {
-          'name': _cluster.name,
+      {{ ocp4_workload_gitops_add_cluster_new_clusters | combine({
+        _cluster.name: {
           'api_url': _cluster.server,
           'token': _resolved_token
         }
-      ] }}
+      }) }}
