@@ -1,0 +1,104 @@
+---
+- name: Create Gitea data directory
+  ansible.builtin.file:
+    path: "{{ bastion_gitea_data_dir }}"
+    state: directory
+    owner: 1000
+    group: 1000
+    mode: "0755"
+
+- name: Clean stale ssh dir from failed runs
+  ansible.builtin.file:
+    path: "{{ bastion_gitea_data_dir }}/ssh"
+    state: absent
+  ignore_errors: true
+
+- name: Create Gitea systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/podman-gitea.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Gitea Server
+      After=network.target
+      [Service]
+      Type=simple
+      TimeoutStartSec=300
+      ExecStartPre=-/usr/bin/podman rm -f gitea
+      ExecStart=podman run --name gitea --net host --security-opt label=disable \
+        -e USER_UID=1000 -e USER_GID=1000 \
+        -e GITEA__server__HTTP_PORT={{ bastion_gitea_port }} \
+        -e GITEA__service__DISABLE_REGISTRATION=true \
+        -e GITEA__security__INSTALL_LOCK=true \
+        -v {{ bastion_gitea_data_dir }}/:/data \
+        {{ bastion_gitea_image }}
+      ExecStop=-/usr/bin/podman rm -f gitea
+      Restart=always
+      RestartSec=30s
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable and start Gitea
+  ansible.builtin.systemd:
+    name: podman-gitea
+    state: restarted
+    daemon_reload: true
+    enabled: true
+
+- name: Open firewall port for Gitea
+  ansible.posix.firewalld:
+    port: "{{ bastion_gitea_port }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  failed_when: false
+
+- name: Wait for Gitea API
+  ansible.builtin.uri:
+    url: "http://localhost:{{ bastion_gitea_port }}/api/v1/version"
+    method: GET
+  register: gitea_check
+  until: gitea_check.status == 200
+  retries: 30
+  delay: 5
+
+- name: Create Gitea admin user
+  ansible.builtin.shell:
+    cmd: >
+      podman exec --user 1000 gitea /bin/sh -c
+      'gitea admin user create
+      --username {{ bastion_gitea_admin_user }}
+      --password {{ bastion_gitea_admin_password }}
+      --email {{ bastion_gitea_admin_email }}
+      --must-change-password=false --admin'
+  register: gitea_user_result
+  retries: 5
+  delay: 10
+  until: gitea_user_result.rc == 0 or "user already exists" in (gitea_user_result.stdout | default('') + gitea_user_result.stderr | default(''))
+  failed_when: gitea_user_result.rc != 0 and "user already exists" not in (gitea_user_result.stdout | default('') + gitea_user_result.stderr | default(''))
+  changed_when: gitea_user_result.rc == 0
+
+- name: Mirror repos into Gitea
+  ansible.builtin.uri:
+    url: "http://localhost:{{ bastion_gitea_port }}/api/v1/repos/migrate"
+    user: "{{ bastion_gitea_admin_user }}"
+    password: "{{ bastion_gitea_admin_password }}"
+    method: POST
+    body: '{"service":"2","clone_addr":"{{ item.url }}","uid":1,"repo_name":"{{ item.name }}"}'
+    body_format: json
+    return_content: true
+    force_basic_auth: true
+  register: result
+  until: >-
+    result.status == 201 or
+    (result.json is defined and
+     result.json.message is defined and
+     "The repository with the same name already exists" in result.json.message)
+  retries: 10
+  delay: 10
+  failed_when: >-
+    result.status != 201 and
+    (result.json is not defined or
+     result.json.message is not defined or
+     "The repository with the same name already exists" not in result.json.message)
+  loop: "{{ bastion_gitea_repos }}"

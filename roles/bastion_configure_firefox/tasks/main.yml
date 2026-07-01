@@ -1,0 +1,161 @@
+---
+- name: Create Firefox policies directory
+  ansible.builtin.file:
+    path: /etc/firefox/policies
+    state: directory
+    mode: "0755"
+
+- name: Write Firefox policies
+  ansible.builtin.copy:
+    dest: /etc/firefox/policies/policies.json
+    mode: "0644"
+    content: |
+      {
+        "policies": {
+          {% if bastion_firefox_homepage | length > 0 %}
+          "Homepage": {"URL": "{{ bastion_firefox_homepage }}", "Locked": true, "StartPage": "homepage"},
+          {% endif %}
+          "OverrideFirstRunPage": "",
+          "OverridePostUpdatePage": "",
+          "UserMessaging": {"WhatsNew": false, "ExtensionRecommendations": false, "FeatureRecommendations": false, "UrlbarInterventions": false, "SkipOnboarding": true, "MoreFromMozilla": false},
+          {% if bastion_firefox_disable_telemetry %}
+          "DisableTelemetry": true,
+          {% endif %}
+          {% if bastion_firefox_import_enterprise_roots %}
+          "Certificates": {"ImportEnterpriseRoots": true},
+          {% endif %}
+          "NoDefaultBookmarks": true,
+          "DontCheckDefaultBrowser": true,
+          "DisableAppUpdate": true
+        }
+      }
+
+- name: Find Firefox install directory
+  ansible.builtin.find:
+    paths:
+      - /usr/lib64
+      - /usr/lib
+    patterns: firefox
+    file_type: directory
+    recurse: false
+  register: _firefox_dirs
+
+- name: Write Firefox autoconfig preferences
+  when: _firefox_dirs.matched > 0
+  ansible.builtin.copy:
+    dest: "{{ _firefox_dirs.files[0].path }}/defaults/pref/autoconfig.js"
+    mode: "0644"
+    content: |
+      pref("browser.sessionstore.resume_from_crash", false);
+      pref("browser.shell.checkDefaultBrowser", false);
+      pref("browser.startup.homepage_override.mstone", "ignore");
+      pref("browser.disableResetPrompt", true);
+      pref("browser.slowStartup.notificationDisabled", true);
+      pref("browser.laterrun.enabled", false);
+
+# OCP post-install tasks — only run when console URL is set
+- name: OCP post-install
+  when: bastion_firefox_ocp_console_url | length > 0
+  block:
+    - name: Read kubeadmin password
+      ansible.builtin.slurp:
+        src: "{{ bastion_firefox_ocp_kubeconfig | dirname }}/kubeadmin-password"
+      register: _kubeadmin_pw
+
+    - name: Trust OCP ingress CA
+      when: bastion_firefox_ocp_trust_ca
+      ansible.builtin.shell:
+        cmd: |
+          export KUBECONFIG={{ bastion_firefox_ocp_kubeconfig }}
+          oc get secret -n openshift-ingress router-certs-default \
+            -o jsonpath='{.data.tls\.crt}' | \
+            base64 -d > /etc/pki/ca-trust/source/anchors/ocp-ingress.pem
+          update-ca-trust
+      changed_when: true
+      ignore_errors: true
+
+    - name: Save kubeadmin password to Firefox
+      when: bastion_firefox_ocp_autologin
+      block:
+        - name: Install Selenium
+          ansible.builtin.pip:
+            name: selenium
+          ignore_errors: true
+
+        - name: Install geckodriver
+          ansible.builtin.unarchive:
+            src: https://github.com/mozilla/geckodriver/releases/download/v0.37.0/geckodriver-v0.37.0-linux64.tar.gz
+            dest: /usr/local/bin
+            remote_src: true
+            creates: /usr/local/bin/geckodriver
+          ignore_errors: true
+
+        - name: Create Firefox profile if needed
+          become_user: "{{ bastion_firefox_user }}"
+          ansible.builtin.shell:
+            cmd: |
+              if ! ls ~/.mozilla/firefox/*.default-default/ >/dev/null 2>&1; then
+                timeout 10 firefox --headless >/dev/null 2>&1 || true
+                sleep 2
+              fi
+          environment:
+            DISPLAY: ":0"
+            WAYLAND_DISPLAY: wayland-0
+            XDG_RUNTIME_DIR: "/run/user/{{ _firefox_uid }}"
+            MOZ_ENABLE_WAYLAND: "1"
+          vars:
+            _firefox_uid: "{{ ansible_facts.getent_passwd[bastion_firefox_user][1] | default('1000') }}"
+          changed_when: false
+          ignore_errors: true
+
+        - name: Get user UID for autologin
+          ansible.builtin.getent:
+            database: passwd
+            key: "{{ bastion_firefox_user }}"
+
+        - name: Run Selenium autologin
+          become_user: "{{ bastion_firefox_user }}"
+          ansible.builtin.script:
+            cmd: /usr/bin/python3
+            stdin: |
+              import time, glob, os
+              from selenium import webdriver
+              from selenium.webdriver.common.by import By
+              from selenium.webdriver.firefox.options import Options
+              from selenium.webdriver.support.ui import WebDriverWait
+              from selenium.webdriver.support import expected_conditions as EC
+              pw = "{{ _kubeadmin_pw.content | b64decode }}"
+              profile = glob.glob(os.path.expanduser("~/.mozilla/firefox/*.default-default"))[0]
+              opts = Options()
+              opts.add_argument("-profile")
+              opts.add_argument(profile)
+              opts.add_argument("-remote-allow-system-access")
+              opts.accept_insecure_certs = True
+              opts.set_preference("signon.rememberSignons", True)
+              opts.set_preference("signon.autofillForms", True)
+              opts.set_preference("signon.storeWhenAutocompleteOff", True)
+              driver = webdriver.Firefox(options=opts)
+              try:
+                  driver.get("{{ bastion_firefox_ocp_console_url }}")
+                  wait = WebDriverWait(driver, 30)
+                  u = wait.until(EC.presence_of_element_located((By.ID, "inputUsername")))
+                  p = driver.find_element(By.ID, "inputPassword")
+                  u.clear(); u.send_keys("kubeadmin")
+                  p.clear(); p.send_keys(pw)
+                  driver.find_element(By.CSS_SELECTOR, "button[type=submit]").click()
+                  time.sleep(3)
+                  driver.set_context("chrome")
+                  for _ in range(15):
+                      try:
+                          driver.find_element(By.CSS_SELECTOR, "popupnotification[id*=password] button.popup-notification-primary-button").click()
+                          print("Password saved to Firefox"); break
+                      except Exception: pass
+                      time.sleep(0.5)
+              finally:
+                  driver.quit()
+          environment:
+            DISPLAY: ":0"
+            WAYLAND_DISPLAY: wayland-0
+            XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts.getent_passwd[bastion_firefox_user][1] | default('1000') }}"
+            MOZ_ENABLE_WAYLAND: "1"
+          ignore_errors: true

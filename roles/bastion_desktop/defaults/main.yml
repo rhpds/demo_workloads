@@ -1,0 +1,12 @@
+---
+bastion_desktop_user: "{{ student_name | default(bastion_student_user_name | default(ansible_user | default('cloud-user'))) }}"
+bastion_desktop_dark_theme: true
+bastion_desktop_ptyxis_palette: Hurtado
+bastion_desktop_resolution_width: 1920
+bastion_desktop_resolution_height: 1080
+bastion_desktop_auto_login: true
+bastion_desktop_favorite_apps:
+  - firefox.desktop
+bastion_desktop_disable_initial_setup: true
+bastion_desktop_disable_screen_lock: true
+bastion_desktop_disable_power_saving: true

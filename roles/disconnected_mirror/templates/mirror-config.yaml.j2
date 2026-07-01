@@ -1,0 +1,44 @@
+apiVersion: mirror.openshift.io/v2alpha1
+kind: ImageSetConfiguration
+mirror:
+{% if disconnected_mirror_release_channels is defined %}
+  platform:
+    channels:
+{% for ch in disconnected_mirror_release_channels %}
+    - name: {{ ch.name }}
+      minVersion: "{{ ch.minVersion }}"
+      maxVersion: "{{ ch.maxVersion }}"
+      type: {{ ch.type | default('ocp') }}
+{% endfor %}
+{% endif %}
+{% if disconnected_mirror_additional_images %}
+  additionalImages:
+{% for img in disconnected_mirror_additional_images %}
+  - name: {{ img }}
+{% endfor %}
+{% endif %}
+  operators:
+  - catalog: {{ disconnected_mirror_catalog }}
+    packages:
+{% for pkg in disconnected_mirror_packages %}
+    - name: {{ pkg.name }}
+{% if pkg.defaultChannel is defined %}
+      defaultChannel: {{ pkg.defaultChannel }}
+{% endif %}
+{% if pkg.channels is defined %}
+      channels:
+{% for ch in pkg.channels %}
+{% if ch is mapping %}
+      - name: {{ ch.name }}
+{% if ch.minVersion is defined %}
+        minVersion: "{{ ch.minVersion }}"
+{% endif %}
+{% if ch.maxVersion is defined %}
+        maxVersion: "{{ ch.maxVersion }}"
+{% endif %}
+{% else %}
+      - name: {{ ch }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}

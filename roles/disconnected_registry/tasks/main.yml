@@ -1,0 +1,197 @@
+---
+- name: Configure pull-through registry mirrors (registries.conf.d)
+  when: disconnected_registry_pull_through_enabled | bool
+  ansible.builtin.copy:
+    dest: /etc/containers/registries.conf.d/rhdp-cache.conf
+    mode: "0644"
+    content: |
+      {% for source, org in disconnected_registry_pull_through_orgs.items() %}
+      [[registry]]
+        prefix = "{{ source }}"
+        location = "{{ disconnected_registry_pull_through_url }}/{{ org }}"
+
+      {% endfor %}
+
+- name: Login to pull-through registry for podman pulls
+  when:
+    - disconnected_registry_pull_through_enabled | bool
+    - disconnected_registry_pull_through_user | length > 0
+  ansible.builtin.shell: |
+    podman login --tls-verify=false \
+      -u '{{ disconnected_registry_pull_through_user }}' \
+      -p '{{ disconnected_registry_pull_through_password }}' \
+      '{{ disconnected_registry_pull_through_url }}'
+  changed_when: true
+  no_log: true
+
+- name: Create registry directories
+  ansible.builtin.file:
+    path: "{{ disconnected_registry_dir }}/{{ _reg_dir }}"
+    state: directory
+    mode: "0755"
+  loop: [auth, certs, data, conf]
+  loop_control:
+    loop_var: _reg_dir
+
+- name: Download static registry certificate
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - {url: "{{ disconnected_registry_static_cert_url }}", dest: "{{ disconnected_registry_cert_path }}"}
+    - {url: "{{ disconnected_registry_static_key_url }}", dest: "{{ disconnected_registry_key_path }}"}
+  when: disconnected_registry_static_cert_url | default('') | length > 0
+
+- name: Generate self-signed certificate
+  ansible.builtin.command:
+    cmd: >
+      openssl req -newkey rsa:4096 -nodes -sha256
+      -keyout {{ disconnected_registry_key_path }}
+      -x509 -days 365 -out {{ disconnected_registry_cert_path }}
+      -subj '/CN={{ disconnected_registry_cert_cn }}'
+      -addext 'subjectAltName=DNS:{{ disconnected_registry_cert_cn }}'
+    creates: "{{ disconnected_registry_cert_path }}"
+  when: disconnected_registry_static_cert_url | default('') | length == 0
+
+- name: Trust the registry certificate
+  ansible.builtin.copy:
+    src: "{{ disconnected_registry_cert_path }}"
+    dest: /etc/pki/ca-trust/source/anchors/registry-cert.pem
+    mode: "0644"
+    remote_src: true
+
+- name: Create htpasswd credentials
+  ansible.builtin.shell:
+    cmd: "htpasswd -bBc {{ disconnected_registry_dir }}/auth/htpasswd {{ disconnected_registry_user }} '{{ disconnected_registry_password }}'"
+    creates: "{{ disconnected_registry_dir }}/auth/htpasswd"
+
+- name: Write registry config
+  ansible.builtin.copy:
+    dest: "{{ disconnected_registry_dir }}/conf/config.yml"
+    mode: "0644"
+    content: |
+      version: 0.1
+      log:
+        fields:
+          service: registry
+      storage:
+        cache:
+          blobdescriptor: inmemory
+        filesystem:
+          rootdirectory: /registry
+      http:
+        addr: :{{ disconnected_registry_port }}
+        tls:
+          certificate: /certs/registry-cert.pem
+          key: /certs/registry-key.pem
+        headers:
+          X-Content-Type-Options: [nosniff]
+      auth:
+        htpasswd:
+          realm: Registry
+          path: /auth/htpasswd
+      health:
+        storagedriver:
+          enabled: true
+
+- name: Create registry systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/podman-registry.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Container Registry
+      After=network.target
+      [Service]
+      Type=simple
+      TimeoutStartSec=300
+      ExecStartPre=-/usr/bin/podman rm -f registry
+      ExecStart=/usr/bin/podman run --name registry --net host --security-opt label=disable \
+        -v {{ disconnected_registry_dir }}/auth:/auth:z \
+        -v {{ disconnected_registry_dir }}/certs:/certs:z \
+        -v {{ disconnected_registry_dir }}/data:/registry:z \
+        -v {{ disconnected_registry_dir }}/conf/config.yml:/etc/docker/registry/config.yml:z \
+        {{ disconnected_registry_image }}
+      ExecStop=-/usr/bin/podman rm -f registry
+      Restart=always
+      RestartSec=30s
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable and start registry
+  ansible.builtin.systemd:
+    name: podman-registry
+    state: restarted
+    daemon_reload: true
+    enabled: true
+
+- name: Update CA trust
+  ansible.builtin.command: update-ca-trust extract
+  changed_when: true
+
+- name: Open firewall port for registry
+  ansible.posix.firewalld:
+    port: "{{ disconnected_registry_port }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  failed_when: false
+
+- name: Wait for registry port
+  ansible.builtin.wait_for:
+    port: "{{ disconnected_registry_port }}"
+    delay: 2
+    timeout: 60
+
+- name: Verify registry login
+  containers.podman.podman_login:
+    username: "{{ disconnected_registry_user }}"
+    password: "{{ disconnected_registry_password }}"
+    registry: "{{ disconnected_registry_hostname }}:{{ disconnected_registry_port }}"
+    authfile: /root/auth.json
+
+# Export registry cert as a fact so the OCP installer role can use it
+- name: Read registry certificate for export
+  ansible.builtin.slurp:
+    src: "{{ disconnected_registry_cert_path }}"
+  register: _reg_cert_slurp
+
+- name: Set host_ocp4_additional_trust_bundle fact
+  ansible.builtin.set_fact:
+    host_ocp4_additional_trust_bundle: "{{ _reg_cert_slurp.content | b64decode }}"
+
+# Inject registry cert + auth into OCP install-config if it exists
+- name: Check if install-config exists
+  ansible.builtin.stat:
+    path: /home/cloud-user/ocp-install/install-config.yaml
+  register: _install_config_stat
+
+- name: Inject registry into install-config
+  when: _install_config_stat.stat.exists
+  block:
+    - name: Read registry certificate
+      ansible.builtin.slurp:
+        src: "{{ disconnected_registry_cert_path }}"
+      register: _registry_cert
+
+    - name: Add additionalTrustBundle and merge pull secret
+      ansible.builtin.shell:
+        cmd: |
+          python3 -c "
+          import yaml, json, base64
+          ic_path = '/home/cloud-user/ocp-install/install-config.yaml'
+          with open(ic_path) as f:
+              ic = yaml.safe_load(f)
+          cert = base64.b64decode('{{ _registry_cert.content }}').decode()
+          ic['additionalTrustBundle'] = cert
+          ps = json.loads(ic.get('pullSecret', '{}'))
+          ps.setdefault('auths', {})
+          auth_str = base64.b64encode(b'{{ disconnected_registry_user }}:{{ disconnected_registry_password }}').decode()
+          ps['auths']['{{ disconnected_registry_hostname }}:{{ disconnected_registry_port }}'] = {'auth': auth_str}
+          ic['pullSecret'] = json.dumps(ps)
+          with open(ic_path, 'w') as f:
+              yaml.dump(ic, f, default_flow_style=False)
+          print('Injected registry cert and auth into install-config.yaml')
+          "
+      changed_when: true

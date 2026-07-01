@@ -1,0 +1,78 @@
+---
+- name: Create MinIO data directory
+  ansible.builtin.file:
+    path: "{{ bastion_minio_data_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Create MinIO systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/podman-minio.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=MinIO S3 Storage
+      After=network.target
+      [Service]
+      Type=simple
+      TimeoutStartSec=300
+      ExecStartPre=-/usr/bin/podman rm -f minio-server
+      ExecStart=/usr/bin/podman run --name minio-server --net host --security-opt label=disable \
+        -v {{ bastion_minio_data_dir }}:/data:rw,z \
+        -e MINIO_ROOT_USER={{ bastion_minio_user }} \
+        -e MINIO_ROOT_PASSWORD={{ bastion_minio_password }} \
+        {{ bastion_minio_image }} server /data --address :{{ bastion_minio_port }} --console-address :{{ bastion_minio_console_port }}
+      ExecStop=-/usr/bin/podman rm -f minio-server
+      Restart=always
+      RestartSec=30s
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable and start MinIO
+  ansible.builtin.systemd:
+    name: podman-minio
+    state: restarted
+    daemon_reload: true
+    enabled: true
+
+- name: Open firewall ports for MinIO
+  ansible.posix.firewalld:
+    port: "{{ _minio_fw_port }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - "{{ bastion_minio_port }}"
+    - "{{ bastion_minio_console_port }}"
+  loop_control:
+    loop_var: _minio_fw_port
+  failed_when: false
+
+- name: Wait for MinIO port
+  ansible.builtin.wait_for:
+    port: "{{ bastion_minio_port }}"
+    delay: 2
+    timeout: 60
+
+- name: Download mc client
+  ansible.builtin.get_url:
+    url: https://dl.min.io/client/mc/release/linux-amd64/mc
+    dest: /usr/bin/mc
+    mode: "0755"
+
+- name: Configure mc alias
+  ansible.builtin.shell:
+    cmd: "mc alias set minio http://localhost:{{ bastion_minio_port }} {{ bastion_minio_user }} {{ bastion_minio_password }}"
+  retries: 3
+  delay: 10
+  register: mc_result
+  until: mc_result.rc == 0
+  changed_when: mc_result.rc == 0
+
+- name: Create buckets
+  ansible.builtin.shell:
+    cmd: "mc mb minio/{{ item }}"
+  loop: "{{ bastion_minio_buckets }}"
+  register: bucket_result
+  failed_when: bucket_result.rc != 0 and "already" not in (bucket_result.stderr | default(''))
+  changed_when: bucket_result.rc == 0

@@ -1,0 +1,12 @@
+---
+bastion_firefox_user: "{{ ansible_user | default('cloud-user') }}"
+bastion_firefox_homepage: ""
+bastion_firefox_disable_telemetry: true
+bastion_firefox_import_enterprise_roots: true
+bastion_firefox_disable_first_run: true
+
+# OCP post-install: set homepage, trust CA, save kubeadmin password
+bastion_firefox_ocp_console_url: ""
+bastion_firefox_ocp_kubeconfig: ""
+bastion_firefox_ocp_trust_ca: true
+bastion_firefox_ocp_autologin: true

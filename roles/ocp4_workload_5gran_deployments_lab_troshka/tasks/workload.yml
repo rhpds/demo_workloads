@@ -1,0 +1,817 @@
+---
+# Workload for Troshka-managed 5G RAN lab
+# Hub cluster is already installed by Troshka's agent-based installer
+# This role: configures operators via ArgoCD, deploys SNO seed via ACM/ZTP
+
+- name: Copy hub kubeconfig for student user
+  ansible.builtin.copy:
+    src: "/home/{{ ansible_user }}/ocp-install/auth/kubeconfig"
+    dest: "/home/{{ student_name }}/hub-kubeconfig"
+    owner: "{{ student_name }}"
+    mode: "0600"
+    remote_src: true
+
+- name: Patch Gitea repo for Troshka compatibility
+  block:
+    - name: Clone lab repo from Gitea
+      ansible.builtin.git:
+        repo: "http://student:{{ common_password }}@infra.{{ networks.cluster.domain | default('lab.local') }}:{{ bastion_gitea_port | default(3000) }}/student/5g-ran-deployments-on-ocp-lab.git"
+        dest: /tmp/gitea-patch
+        version: "{{ lab_version }}"
+        force: true
+
+    - name: Detect hub OCP version
+      ansible.builtin.shell:
+        cmd: oc --kubeconfig="/home/{{ student_name }}/hub-kubeconfig" get clusterversion version -o jsonpath='{.status.desired.version}'
+      register: _hub_version
+      changed_when: false
+
+    - name: Get OCP release digest
+      ansible.builtin.shell:
+        cmd: >-
+          oc adm release info --insecure=true
+          quay.io/openshift-release-dev/ocp-release:{{ ran_sno_ocp_version | default(_hub_version.stdout | trim) }}-x86_64
+          -o jsonpath='{.digest}'
+      register: _release_digest
+      changed_when: false
+
+    - name: Set OCP version facts
+      ansible.builtin.set_fact:
+        _ran_ocp_version: "{{ ran_sno_ocp_version | default(_hub_version.stdout | trim) }}"
+        _ran_release_digest: "{{ _release_digest.stdout | trim }}"
+
+    - name: Patch repo for Troshka compatibility
+      ansible.builtin.shell:
+        cmd: |
+          cd /tmp/gitea-patch
+          _VER="{{ _ran_ocp_version }}"
+          _DIGEST="{{ _ran_release_digest }}"
+          _REL="quay.io/openshift-release-dev/ocp-release@${_DIGEST}"
+
+          rm -f lab-materials/hub-config/operators-config/02_patch_provisioning.yaml
+          sed -i '/02_patch_provisioning.yaml/d' lab-materials/hub-config/operators-config/kustomization.yaml
+          grep -rl 'storageClass:' lab-materials/hub-config/operators-config/ | xargs -r sed -i '/^\s*storageClass:/d'
+          grep -rl 'admin1234' lab-materials/ | xargs -r sed -i 's/admin1234/{{ common_password }}/g'
+
+          sed -i "s|tag: \"4\.20\.8\"|tag: \"${_VER}\"|g" lab-materials/lab-env-data/hub-cluster/hub.yml
+          sed -i "s|disconnected_extra_release: 4\.20\.10|disconnected_extra_release: ${_VER}|g" lab-materials/lab-env-data/hub-cluster/hub.yml
+
+          sed -i "s|openshift-v4\.20\.8-disconnected|openshift-v${_VER}-disconnected|g" lab-materials/hub-config/operators-config/01_ai_config.yaml
+          sed -i "s|openshift-v4\.20\.10-disconnected|openshift-v${_VER}-disconnected|g" lab-materials/hub-config/operators-config/01_ai_config.yaml
+          sed -i "s|infra\.5g-deployment\.lab:8443/openshift/release-images:.*-x86_64|${_REL}|g" lab-materials/hub-config/operators-config/01_ai_config.yaml
+          sed -i "s|openshift-v4\.20\.8-disconnected|openshift-v${_VER}-disconnected|g" lab-materials/sno-deployment/03_agentclusterinstall.yaml
+
+          python3 -c "
+          content = open('lab-materials/hub-config/operators-config/01_ai_config.yaml').read()
+          docs = content.split('---')
+          seen_cis = set()
+          out = []
+          for doc in docs:
+              if 'ClusterImageSet' in doc:
+                  import re
+                  m = re.search(r'name:\s*(\S+)', doc)
+                  name = m.group(1) if m else ''
+                  if name in seen_cis:
+                      continue
+                  seen_cis.add(name)
+              out.append(doc)
+          open('lab-materials/hub-config/operators-config/01_ai_config.yaml', 'w').write('---'.join(out))
+          "
+      changed_when: true
+
+    - name: Get topology from Troshka for BMC data
+      troshka.cloud.project_info:
+        api_url: "{{ troshka_api_url }}"
+        api_key: "{{ troshka_api_key }}"
+        project_id: "{{ troshka_project_id }}"
+      register: _topo_for_bmc
+      delegate_to: localhost
+      become: false
+
+    - name: Write topology JSON for BMH rewrite
+      ansible.builtin.copy:
+        content: "{{ (_topo_for_bmc.deployed_topology | default(_topo_for_bmc.topology)) | to_json }}"
+        dest: /tmp/troshka-topo-bmc.json
+        mode: "0600"
+
+    - name: Rewrite SNO BMH manifests with topology BMC data
+      ansible.builtin.shell:
+        cmd: |
+          cd /tmp/gitea-patch
+          _BMC_USER="{{ host_ocp4_bmc_user | default('admin') }}"
+          _BMC_PASS="{{ common_password }}"
+          _BMC_USER_B64=$(echo -n "${_BMC_USER}" | base64)
+          _BMC_PASS_B64=$(echo -n "${_BMC_PASS}" | base64)
+
+          python3 - "${_BMC_USER}" "${_BMC_PASS}" "${_BMC_USER_B64}" "${_BMC_PASS_B64}" << 'PYEOF'
+          import json, re, sys
+
+          bmc_user, bmc_pass = sys.argv[1], sys.argv[2]
+          bmc_user_b64, bmc_pass_b64 = sys.argv[3], sys.argv[4]
+
+          topo = json.load(open('/tmp/troshka-topo-bmc.json'))
+          nodes = topo.get("nodes", [])
+
+          # Find BMC-enabled VMs (SNOs) from topology
+          sno_vms = []
+          for n in nodes:
+              if n.get("type") == "vmNode" and n.get("data", {}).get("bmcEnabled"):
+                  d = n["data"]
+                  if d.get("name") in ("bastion",):
+                      continue
+                  mac = d.get("nics", [{}])[0].get("mac", "") if d.get("nics") else ""
+                  domain_uuid = d.get("domainUuid", "")
+                  if not domain_uuid:
+                      print(f"WARNING: VM {d.get('name','')} has no domainUuid in topology")
+                      continue
+                  sno_vms.append({
+                      "name": d.get("name", ""),
+                      "bmc_ip": d.get("bmcIp", ""),
+                      "bmc_port": d.get("bmcPort", 8000),
+                      "mac": mac,
+                      "domain_uuid": domain_uuid,
+                  })
+
+          if not sno_vms:
+              print("No BMC-enabled SNO VMs found in topology — skipping")
+              sys.exit(0)
+
+          bmh_file = "lab-materials/sno-deployment/06_bmh.yaml"
+          with open(bmh_file) as f:
+              content = f.read()
+
+          for vm in sno_vms:
+              # domainUuid is the libvirt domain UUID stored by Troshka at deploy time
+              # sushy-emulator uses domain.UUIDString() as the Redfish Systems ID
+              bmc_addr = f"redfish-virtualmedia+http://{vm['bmc_ip']}:{vm['bmc_port']}/redfish/v1/Systems/{vm['domain_uuid']}"
+              content = re.sub(r'address:\s*redfish-virtualmedia[+a-z]*://[^\s]+', f'address: {bmc_addr}', content)
+              if vm["mac"]:
+                  content = re.sub(r'bootMACAddress:\s*\S+', f'bootMACAddress: {vm["mac"]}', content)
+              content = re.sub(r'(data:\n\s+username:\s*)"[^"]*"', f'\\1"{bmc_user_b64}"', content)
+              content = re.sub(r'(data:\n\s+username:\s*"[^"]*"\n\s+password:\s*)"[^"]*"', f'\\1"{bmc_pass_b64}"', content)
+              print(f"Updated BMH {vm['name']}: {bmc_addr} mac={vm['mac']}")
+
+          with open(bmh_file, "w") as f:
+              f.write(content)
+          PYEOF
+      changed_when: true
+
+    - name: Push patches to Gitea
+      ansible.builtin.shell:
+        cmd: |
+          cd /tmp/gitea-patch
+          git add -A
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git -c user.email=troshka@local -c user.name=troshka commit -m "Troshka: patch versions, credentials, storageClass"
+          git push
+      register: _gitea_push
+      changed_when: "'no changes' not in _gitea_push.stdout"
+
+- name: Disable mirroring since we're running in a golden image
+  ansible.builtin.lineinfile:
+    path: /root/hub.yml
+    regexp: '^disconnected_update: True'
+    line: "disconnected_update: {{ disconnected_update }}"
+
+- name: Read registry CA cert
+  ansible.builtin.slurp:
+    src: /opt/registry/certs/registry-cert.pem
+  register: _registry_ca
+
+- name: Configure registry CA in hub.yml
+  ansible.builtin.blockinfile:
+    path: /root/hub.yml
+    block: |
+      ca: |
+        {{ _registry_ca.content | b64decode | indent(8) }}
+
+- name: Ensure manifests folder exists
+  ansible.builtin.file:
+    path: /root/manifests
+    state: directory
+    mode: '0755'
+  when: not disconnected_update|bool
+
+- name: Read oc-mirror generated catalog source
+  ansible.builtin.shell:
+    cmd: cat /root/working-dir/cluster-resources/cs-redhat-operator-index-v4-20.yaml 2>/dev/null
+  register: _oc_mirror_cs
+  changed_when: false
+  failed_when: false
+
+- name: Configure CatalogSource extra manifest for golden image env
+  ansible.builtin.copy:
+    dest: /root/manifests/disconnected-catalog-source.yaml
+    content: |
+      {{ _oc_mirror_cs.stdout | default('') }}
+    owner: root
+    group: root
+    mode: '0644'
+  when: not disconnected_update|bool
+
+- name: Download kubernetes manifests
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ item.destination }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/argocd-patch.json", destination: "/tmp/argocd-openshift-gitops-patch.json", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/hub-operators-argoapps.yaml", destination: "/tmp/hub-operators-argoapps.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/sno1-argoapp.yaml", destination: "/tmp/sno1-argoapp.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/argocd-clusterrolebinding.yaml", destination: "/tmp/argocd-clusterrolebinding.yaml", mode: "0644"}
+  delay: 10
+  retries: 5
+
+- name: Copy kubeconfig for hub cluster
+  ansible.builtin.copy:
+    src: "{{ troshka_kubeconfig | default('/home/cloud-user/ocp-install/auth/kubeconfig') }}"
+    dest: "/home/{{ student_name }}/hub-kubeconfig"
+    remote_src: true
+    owner: "{{ student_name }}"
+
+- name: Remove kubeadmin user
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: absent
+    api_version: v1
+    kind: Secret
+    namespace: kube-system
+    name: kubeadmin
+
+- name: Configure cluster DNS to forward lab domain to gateway
+  ansible.builtin.shell:
+    cmd: |
+      _DOMAIN="{{ networks.cluster.domain | default('lab.local') }}"
+      _GW="{{ networks.cluster.cidr | ansible.utils.ipaddr('1') | ansible.utils.ipaddr('address') }}"
+      oc patch dns.operator/default --type=merge -p "{
+        \"spec\": {
+          \"servers\": [{
+            \"name\": \"lab-forward\",
+            \"zones\": [\"${_DOMAIN}\"],
+            \"forwardPlugin\": {
+              \"upstreams\": [\"${_GW}\"]
+            }
+          }]
+        }
+      }"
+  changed_when: true
+
+- name: Restart all marketplace pods after DNS fix
+  ansible.builtin.shell:
+    cmd: >-
+      oc delete pod -n openshift-marketplace --all --force --grace-period=0
+      2>/dev/null || true
+  changed_when: true
+
+- name: Wait for DNS forwarder to propagate
+  ansible.builtin.pause:
+    seconds: 15
+
+- name: Wait for catalog pod to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: v1
+    kind: Pod
+    namespace: openshift-marketplace
+    label_selectors:
+      - "olm.catalogSource={{ disconnected_mirror_catalog_alias | default('cs-redhat-operator-index-v4-20') }}"
+    field_selectors:
+      - status.phase=Running
+  register: _catalog_pod
+  until: _catalog_pod.resources | default([]) | length > 0
+  retries: 30
+  delay: 10
+
+- name: Disable default catalog sources (disconnected environment)
+  ansible.builtin.shell:
+    cmd: >-
+      oc patch operatorhub cluster --type merge
+      -p '{"spec":{"disableAllDefaultSources":true}}'
+
+- name: Install OpenShift GitOps operator
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: openshift-gitops-operator
+        namespace: openshift-operators
+      spec:
+        channel: latest
+        installPlanApproval: Automatic
+        name: openshift-gitops-operator
+        source: "{{ disconnected_mirror_catalog_alias | default('cs-redhat-operator-index-v4-20') }}"
+        sourceNamespace: openshift-marketplace
+  register: _gitops_sub
+  until: not _gitops_sub.failed
+  retries: 10
+  delay: 10
+
+- name: Wait for GitOps operator CSV to succeed
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    label_selectors:
+      - "operators.coreos.com/openshift-gitops-operator.openshift-operators"
+    namespace: openshift-operators
+  register: _gitops_csv
+  retries: 60
+  delay: 10
+  until:
+    - _gitops_csv.resources is defined
+    - _gitops_csv.resources | length > 0
+    - _gitops_csv.resources[0].status | json_query('phase') == "Succeeded"
+
+- name: Wait for ArgoCD instance to be ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: argoproj.io/v1alpha1
+    kind: ArgoCD
+    name: openshift-gitops
+    namespace: openshift-gitops
+  register: _argocd_instance
+  retries: 30
+  delay: 10
+  until:
+    - _argocd_instance.resources is defined
+    - _argocd_instance.resources | length > 0
+
+- name: Patch ArgoCD instance for ZTP support
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: argoproj.io/v1alpha1
+    kind: ArgoCD
+    name: openshift-gitops
+    namespace: openshift-gitops
+    state: patched
+    src: /tmp/argocd-openshift-gitops-patch.json
+    merge_type: merge
+  register: argocd_patch_result
+  until: not argocd_patch_result.failed
+  retries: 10
+  delay: 10
+
+- name: Apply ArgoCD ClusterRoleBinding
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    src: /tmp/argocd-clusterrolebinding.yaml
+  register: result
+  until: not result.failed
+  retries: 10
+  delay: 10
+
+- name: Wait until ArgoCD Pods are ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    kind: Pod
+    namespace: openshift-gitops
+    label_selectors:
+      - app.kubernetes.io/name = openshift-gitops-repo-server
+  register: result
+  until:
+    - result.resources is defined
+    - result.resources | length > 0
+    - result.resources[0].status.phase | default('') == "Running"
+    - result.resources[0].status.containerStatuses | default([]) | length > 0
+    - result.resources[0].status.containerStatuses | default([{}]) | first | json_query('ready') | default(false)
+  retries: 10
+  delay: 10
+
+- name: Apply HUB Cluster Operators APPs
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    src: /tmp/hub-operators-argoapps.yaml
+  register: result
+  until: not result.failed
+  retries: 10
+  delay: 10
+
+- name: Apply Provisioning configuration directly
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    definition:
+      apiVersion: metal3.io/v1alpha1
+      kind: Provisioning
+      metadata:
+        name: provisioning-configuration
+      spec:
+        provisioningNetwork: Disabled
+        watchAllNamespaces: true
+  register: _provisioning
+  until: not _provisioning.failed
+  retries: 10
+  delay: 10
+
+- name: Create openshift-storage namespace
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: openshift-storage
+
+- name: Create OperatorGroup for openshift-storage
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: openshift-storage-operatorgroup
+        namespace: openshift-storage
+      spec:
+        targetNamespaces:
+          - openshift-storage
+
+- name: Install LVMS operator
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: lvms-operator
+        namespace: openshift-storage
+      spec:
+        channel: stable-4.20
+        installPlanApproval: Automatic
+        name: lvms-operator
+        source: "{{ disconnected_mirror_catalog_alias | default('cs-redhat-operator-index-v4-20') }}"
+        sourceNamespace: openshift-marketplace
+  register: _lvms_sub
+  until: not _lvms_sub.failed
+  retries: 10
+  delay: 10
+
+- name: Wait for LVMS operator CSV to succeed
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    label_selectors:
+      - "operators.coreos.com/lvms-operator.openshift-storage"
+    namespace: openshift-storage
+  register: _lvms_csv
+  retries: 60
+  delay: 10
+  until:
+    - _lvms_csv.resources is defined
+    - _lvms_csv.resources | length > 0
+    - _lvms_csv.resources[0].status is defined
+    - _lvms_csv.resources[0].status.phase | default('') == "Succeeded"
+
+- name: Create LVMCluster
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    definition:
+      apiVersion: lvm.topolvm.io/v1alpha1
+      kind: LVMCluster
+      metadata:
+        name: lvmcluster
+        namespace: openshift-storage
+      spec:
+        storage:
+          deviceClasses:
+            - name: vg1
+              default: true
+              thinPoolConfig:
+                name: thin-pool-1
+                sizePercent: 90
+                overprovisionRatio: 10
+
+- name: Wait until LVMCluster is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: lvm.topolvm.io/v1alpha1
+    kind: LVMCluster
+    name: lvmcluster
+    namespace: openshift-storage
+  register: lvmcluster
+  retries: 30
+  delay: 10
+  until:
+    - lvmcluster.resources is defined
+    - lvmcluster.resources | length > 0
+    - lvmcluster.resources[0].status is defined
+    - lvmcluster.resources[0].status.state | default('') == "Ready"
+
+- name: Set LVMCluster storageclass as default
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: patched
+    api_version: storage.k8s.io/v1
+    kind: StorageClass
+    name: lvms-vg1
+    definition:
+      metadata:
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+  register: result
+  until: not result.failed
+  retries: 10
+  delay: 30
+
+- name: Wait until ArgoCD APP for HUB Operators deployment is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: hub-operators-deployment
+    namespace: openshift-gitops
+  register: argocd_app
+  retries: 100
+  delay: 10
+  until:
+    - argocd_app.resources is defined
+    - argocd_app.resources | length > 0
+    - argocd_app.resources[0].status is defined
+    - argocd_app.resources[0].status.health.status | default('') == "Healthy"
+    - argocd_app.resources[0].status.sync.status | default('') == "Synced"
+
+- name: Wait until ArgoCD APP for HUB Operators config is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: hub-operators-config
+    namespace: openshift-gitops
+  register: argocd_app
+  retries: 100
+  delay: 10
+  until:
+    - argocd_app.resources is defined
+    - argocd_app.resources | length > 0
+    - argocd_app.resources[0].status is defined
+    - argocd_app.resources[0].status.health.status | default('') == "Healthy"
+    - argocd_app.resources[0].status.sync.status | default('') == "Synced"
+
+- name: Wait until MultiClusterHub is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: operator.open-cluster-management.io/v1
+    kind: MultiClusterHub
+    name: multiclusterhub
+    namespace: open-cluster-management
+  register: rhacm
+  retries: 100
+  delay: 10
+  until:
+    - rhacm.resources is defined
+    - rhacm.resources | length > 0
+    - rhacm.resources[0].status is defined
+    - rhacm.resources[0].status.phase | default('') == "Running"
+
+- name: Wait until MultiClusterEngine is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: multicluster.openshift.io/v1
+    kind: MultiClusterEngine
+    name: multiclusterengine
+    namespace: multicluster-engine
+  register: mce
+  retries: 60
+  delay: 10
+  until:
+    - mce.resources is defined
+    - mce.resources | length > 0
+    - mce.resources[0].status is defined
+    - mce.resources[0].status.phase | default('') == "Available"
+
+- name: Wait until MultiClusterObservability is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: observability.open-cluster-management.io/v1beta2
+    kind: MultiClusterObservability
+    name: observability
+    namespace: open-cluster-management-observability
+  register: mco
+  retries: 60
+  delay: 10
+  until:
+    - mco.resources is defined
+    - mco.resources | length > 0
+    - mco.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first | default('False') == 'True'
+
+- name: Download SNO ssh key from gitea
+  ansible.builtin.get_url:
+    url: "http://infra.5g-deployment.lab:3000/student/5g-ran-deployments-on-ocp-lab/raw/branch/{{ lab_version }}/lab-materials/lab-env-data/hypervisor/ssh-key"
+    dest: "/home/{{ student_name }}/.ssh/snokey"
+    mode: "0400"
+    owner: "{{ student_name }}"
+  retries: 3
+  delay: 5
+
+- name: Apply SNO Seed Cluster Deployment APPs
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    src: /tmp/sno1-argoapp.yaml
+  register: result
+  until: not result.failed
+  retries: 5
+  delay: 60
+
+- name: Force ArgoCD to pick up latest Gitea revision for SNO deployment
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    state: present
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: sno-seed-deployment
+    namespace: openshift-gitops
+    definition:
+      metadata:
+        annotations:
+          argocd.argoproj.io/refresh: "hard"
+    merge_type: merge
+
+- name: Wait until ArgoCD APP for SNO Seed deployment is ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: sno-seed-deployment
+    namespace: openshift-gitops
+  register: argocd_app
+  retries: 60
+  delay: 10
+  until:
+    - argocd_app.resources is defined
+    - argocd_app.resources | length > 0
+    - argocd_app.resources[0].status is defined
+    - argocd_app.resources[0].status.health.status | default('') == "Healthy"
+    - argocd_app.resources[0].status.sync.status | default('') == "Synced"
+
+- name: Wait for SNO Seed cluster to be deployed
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/hub-kubeconfig"
+    api_version: extensions.hive.openshift.io/v1beta1
+    kind: AgentClusterInstall
+    name: sno-seed
+    namespace: sno-seed
+  register: snoseed_status
+  retries: 120
+  delay: 60
+  until:
+    - snoseed_status.resources is defined
+    - snoseed_status.resources | default([]) | length > 0
+    - snoseed_status.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Completed') | selectattr('status', 'equalto', 'True') | list | length > 0
+
+- name: Extract SNO Seed kubeconfig
+  ansible.builtin.shell:
+    cmd: |
+      oc --kubeconfig /home/{{ student_name }}/hub-kubeconfig \
+        -n sno-seed \
+        extract secret/sno-seed-admin-kubeconfig \
+        --to=- > /home/{{ student_name }}/seed-cluster-kubeconfig
+  register: result
+  retries: 3
+  delay: 10
+  failed_when: result.rc != 0
+  changed_when: true
+
+- name: Download SNO config manifests
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ item.destination }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_oadp_deployment.yaml", destination: "/tmp/02_oadp_deployment.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_lca_deployment.yaml", destination: "/tmp/02_lca_deployment.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_sriov_deployment.yaml", destination: "/tmp/02_sriov_deployment.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_ptp_deployment.yaml", destination: "/tmp/02_ptp_deployment.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_logging_deployment.yaml", destination: "/tmp/02_logging_deployment.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_lvms_deployment.yaml", destination: "/tmp/02_lvms_deployment.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_sriovoperatorconfig.yaml", destination: "/tmp/03_sriovoperatorconfig.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_sriov-nw-du-netdev.yaml", destination: "/tmp/03_sriov-nw-du-netdev.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_sriov-nw-du-vfio.yaml", destination: "/tmp/03_sriov-nw-du-vfio.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_loggingconfig.yaml", destination: "/tmp/03_loggingconfig.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_ptpoperatorconfig.yaml", destination: "/tmp/03_ptpoperatorconfig.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/04_performance_profile.yaml", destination: "/tmp/04_performance_profile.yaml", mode: "0644"}
+    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/05_TunedPerformancePatch.yaml", destination: "/tmp/05_TunedPerformancePatch.yaml", mode: "0644"}
+  retries: 5
+  delay: 10
+
+- name: Install operators on SNO Seed
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/seed-cluster-kubeconfig"
+    state: present
+    src: "{{ item }}"
+  loop:
+    - /tmp/02_oadp_deployment.yaml
+    - /tmp/02_lca_deployment.yaml
+    - /tmp/02_lvms_deployment.yaml
+    - /tmp/02_sriov_deployment.yaml
+    - /tmp/02_logging_deployment.yaml
+    - /tmp/02_ptp_deployment.yaml
+  register: result
+  until: not result.failed
+  retries: 60
+  delay: 10
+
+- name: Wait until SNO operators are installed
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/seed-cluster-kubeconfig"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    label_selectors:
+      - "{{ item.label }}"
+    namespace: "{{ item.namespace }}"
+  register: operator
+  retries: 60
+  delay: 10
+  until:
+    - operator.resources is defined
+    - operator.resources | length > 0
+    - operator.resources[0].status is defined
+    - operator.resources[0].status.phase | default('') == "Succeeded"
+  loop:
+    - {label: "operators.coreos.com/redhat-oadp-operator.openshift-adp", namespace: "openshift-adp"}
+    - {label: "operators.coreos.com/lifecycle-agent.openshift-lifecycle-agent", namespace: "openshift-lifecycle-agent"}
+    - {label: "operators.coreos.com/lvms-operator.openshift-storage", namespace: "openshift-storage"}
+    - {label: "operators.coreos.com/sriov-network-operator.openshift-sriov-network-operator", namespace: "openshift-sriov-network-operator"}
+    - {label: "operators.coreos.com/cluster-logging.openshift-logging", namespace: "openshift-logging"}
+    - {label: "operators.coreos.com/ptp-operator.openshift-ptp", namespace: "openshift-ptp"}
+
+- name: Configure SR-IOV, Logging, PTP on SNO Seed
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/seed-cluster-kubeconfig"
+    state: present
+    src: "{{ item }}"
+  loop:
+    - /tmp/03_sriovoperatorconfig.yaml
+    - /tmp/03_sriov-nw-du-netdev.yaml
+    - /tmp/03_sriov-nw-du-vfio.yaml
+    - /tmp/03_loggingconfig.yaml
+    - /tmp/03_ptpoperatorconfig.yaml
+  register: result
+  until: not result.failed
+  retries: 60
+  delay: 10
+
+- name: Add ZTP wave annotations to operators
+  kubernetes.core.k8s:
+    state: patched
+    kubeconfig: "/home/{{ student_name }}/seed-cluster-kubeconfig"
+    api_version: operators.coreos.com/v1
+    kind: Operator
+    name: "{{ item }}"
+    definition:
+      metadata:
+        annotations:
+          "ran.openshift.io/ztp-deploy-wave": "2"
+  loop:
+    - cluster-logging.openshift-logging
+    - lifecycle-agent.openshift-lifecycle-agent
+    - lvms-operator.openshift-storage
+    - ptp-operator.openshift-ptp
+    - redhat-oadp-operator.openshift-adp
+    - sriov-network-operator.openshift-sriov-network-operator
+  register: result
+  until: not result.failed
+  retries: 60
+  delay: 10
+
+- name: Wait until SR-IOV is configured
+  kubernetes.core.k8s_info:
+    kubeconfig: "/home/{{ student_name }}/seed-cluster-kubeconfig"
+    api_version: v1
+    kind: Node
+    name: openshift-master-0
+  register: sriov
+  retries: 60
+  delay: 10
+  until:
+    - sriov.resources is defined
+    - sriov.resources | length > 0
+    - sriov.resources[0].status is defined
+    - sriov.resources[0].status.allocatable | default({}) | json_query('"openshift.io/virt-enp4s0"') == "2"
+
+- name: Apply performance tuning to SNO Seed
+  kubernetes.core.k8s:
+    kubeconfig: "/home/{{ student_name }}/seed-cluster-kubeconfig"
+    state: present
+    src: "{{ item }}"
+  loop:
+    - /tmp/04_performance_profile.yaml
+    - /tmp/05_TunedPerformancePatch.yaml
+  register: result
+  until: not result.failed
+  retries: 60
+  delay: 10
+
+- name: workload tasks complete
+  debug:
+    msg: "Workload Tasks completed successfully."
+  when: not silent|bool
