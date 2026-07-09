@@ -88,9 +88,9 @@
       delegate_to: localhost
       become: false
 
-    - name: Write topology JSON for BMH rewrite
+    - name: Write BMC data JSON for BMH rewrite
       ansible.builtin.copy:
-        content: "{{ (_topo_for_bmc.deployed_topology | default(_topo_for_bmc.topology)) | to_json }}"
+        content: "{{ _topo_for_bmc | to_json }}"
         dest: /tmp/troshka-topo-bmc.json
         mode: "0600"
 
@@ -109,50 +109,108 @@
           bmc_user, bmc_pass = sys.argv[1], sys.argv[2]
           bmc_user_b64, bmc_pass_b64 = sys.argv[3], sys.argv[4]
 
-          topo = json.load(open('/tmp/troshka-topo-bmc.json'))
+          data = json.load(open('/tmp/troshka-topo-bmc.json'))
+
+          # Use deployed_topology.bmc section (has full redfish_url with correct UUID)
+          dt = data.get("deployed_topology", {})
+          topo = dt if dt else data.get("topology", {})
+          bmc_data = topo.get("bmc", {})
+          bmc_vms = bmc_data.get("vms", {})
           nodes = topo.get("nodes", [])
 
-          # Find BMC-enabled VMs (SNOs) from topology
+          # Build VM info from bmc section + topology nodes
           sno_vms = []
           for n in nodes:
-              if n.get("type") == "vmNode" and n.get("data", {}).get("bmcEnabled"):
-                  d = n["data"]
-                  if d.get("name") in ("bastion",):
-                      continue
-                  mac = d.get("nics", [{}])[0].get("mac", "") if d.get("nics") else ""
+              if n.get("type") != "vmNode" or not n.get("data", {}).get("bmcEnabled"):
+                  continue
+              d = n["data"]
+              if d.get("name") in ("bastion",):
+                  continue
+              vm_id = n["id"]
+              mac = d.get("nics", [{}])[0].get("mac", "") if d.get("nics") else ""
+              bmc_info = bmc_vms.get(vm_id, {})
+              redfish_url = bmc_info.get("redfish_url", "")
+              if not redfish_url:
+                  # Fallback: construct from domainUuid
                   domain_uuid = d.get("domainUuid", "")
                   if not domain_uuid:
-                      print(f"WARNING: VM {d.get('name','')} has no domainUuid in topology")
+                      print(f"WARNING: VM {d.get('name','')} has no BMC redfish_url or domainUuid")
                       continue
-                  sno_vms.append({
-                      "name": d.get("name", ""),
-                      "bmc_ip": d.get("bmcIp", ""),
-                      "bmc_port": d.get("bmcPort", 8000),
-                      "mac": mac,
-                      "domain_uuid": domain_uuid,
-                  })
+                  redfish_url = f"redfish-virtualmedia+http://{d.get('bmcIp', '')}:8000/redfish/v1/Systems/{domain_uuid}"
+              else:
+                  # Convert redfish-virtualmedia:// to redfish-virtualmedia+http://
+                  redfish_url = redfish_url.replace("redfish-virtualmedia://", "redfish-virtualmedia+http://")
+              sno_vms.append({"name": d.get("name", ""), "mac": mac, "redfish_url": redfish_url})
 
           if not sno_vms:
-              print("No BMC-enabled SNO VMs found in topology — skipping")
+              print("No BMC-enabled SNO VMs found — skipping BMH rewrite")
               sys.exit(0)
+
+          # Build lookup by VM name
+          vm_by_name = {vm["name"]: vm for vm in sno_vms}
 
           bmh_file = "lab-materials/sno-deployment/06_bmh.yaml"
           with open(bmh_file) as f:
               content = f.read()
 
-          for vm in sno_vms:
-              # domainUuid is the libvirt domain UUID stored by Troshka at deploy time
-              # sushy-emulator uses domain.UUIDString() as the Redfish Systems ID
-              bmc_addr = f"redfish-virtualmedia+http://{vm['bmc_ip']}:{vm['bmc_port']}/redfish/v1/Systems/{vm['domain_uuid']}"
-              content = re.sub(r'address:\s*redfish-virtualmedia[+a-z]*://[^\s]+', f'address: {bmc_addr}', content)
-              if vm["mac"]:
-                  content = re.sub(r'bootMACAddress:\s*\S+', f'bootMACAddress: {vm["mac"]}', content)
+          # Match sno-seed BMH to sno-seed VM data
+          seed = vm_by_name.get("sno-seed")
+          if seed:
+              content = re.sub(r'address:\s*redfish-virtualmedia[+a-z]*://[^\s]+', f'address: {seed["redfish_url"]}', content)
+              if seed["mac"]:
+                  content = re.sub(r'bootMACAddress:\s*\S+', f'bootMACAddress: {seed["mac"]}', content)
               content = re.sub(r'(data:\n\s+username:\s*)"[^"]*"', f'\\1"{bmc_user_b64}"', content)
               content = re.sub(r'(data:\n\s+username:\s*"[^"]*"\n\s+password:\s*)"[^"]*"', f'\\1"{bmc_pass_b64}"', content)
-              print(f"Updated BMH {vm['name']}: {bmc_addr} mac={vm['mac']}")
+              print(f"Updated BMH sno-seed: {seed['redfish_url']} mac={seed['mac']}")
+          else:
+              print("WARNING: sno-seed not found in topology BMC data")
 
           with open(bmh_file, "w") as f:
               f.write(content)
+          PYEOF
+      changed_when: true
+
+    - name: Inject trust bundle and ignition CA override into InfraEnv
+      ansible.builtin.shell:
+        cmd: |
+          cd /tmp/gitea-patch
+          export KUBECONFIG="/home/{{ student_name }}/hub-kubeconfig"
+          python3 << 'PYEOF'
+          import yaml, subprocess, base64, json
+
+          # Collect trust certs: registry CA + hub ingress CA
+          certs = ""
+          try:
+              certs += open("/opt/registry/certs/registry-cert.pem").read()
+          except FileNotFoundError:
+              pass
+          try:
+              out = subprocess.check_output([
+                  "oc", "get", "secret", "-n", "openshift-ingress",
+                  "router-certs-default", "-o", "jsonpath={.data.tls\\.crt}"
+              ], text=True, timeout=10)
+              certs += base64.b64decode(out).decode()
+          except Exception:
+              pass
+
+          if not certs.strip():
+              print("WARNING: no trust certs found")
+              exit(0)
+
+          with open("lab-materials/sno-deployment/05_infraenv.yaml") as f:
+              doc = yaml.safe_load(f)
+
+          # Set additionalTrustBundle for agent comms after boot
+          doc["spec"]["additionalTrustBundle"] = certs
+
+          # Use full ISO instead of minimal — full ISO embeds ignition + trust
+          # bundle directly, so discovery agent doesn't need HTTPS to download
+          # ignition at boot (avoids self-signed ingress cert chicken-and-egg)
+          doc["spec"]["imageType"] = "full-iso"
+
+          with open("lab-materials/sno-deployment/05_infraenv.yaml", "w") as f:
+              yaml.dump(doc, f, default_flow_style=False, width=4096)
+          print("Injected trust bundle + ignition CA override into InfraEnv")
           PYEOF
       changed_when: true
 
