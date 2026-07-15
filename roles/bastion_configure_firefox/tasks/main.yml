@@ -98,6 +98,7 @@
           ignore_errors: true
 
         - name: Create Firefox profile if needed
+          become: true
           become_user: "{{ bastion_firefox_user }}"
           ansible.builtin.shell:
             cmd: |
@@ -121,6 +122,7 @@
             key: "{{ bastion_firefox_user }}"
 
         - name: Run Selenium autologin
+          become: true
           become_user: "{{ bastion_firefox_user }}"
           ansible.builtin.script:
             cmd: /usr/bin/python3

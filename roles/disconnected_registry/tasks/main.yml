@@ -62,8 +62,8 @@
     remote_src: true
 
 - name: Create htpasswd credentials
-  ansible.builtin.shell:
-    cmd: "htpasswd -bBc {{ disconnected_registry_dir }}/auth/htpasswd {{ disconnected_registry_user }} '{{ disconnected_registry_password }}'"
+  ansible.builtin.command:
+    cmd: "htpasswd -bBc {{ disconnected_registry_dir }}/auth/htpasswd {{ disconnected_registry_user }} {{ disconnected_registry_password }}"
     creates: "{{ disconnected_registry_dir }}/auth/htpasswd"
 
 - name: Write registry config

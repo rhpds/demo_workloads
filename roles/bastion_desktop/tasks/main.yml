@@ -61,15 +61,13 @@
     - { path: "/home/{{ bastion_desktop_user }}", owner: "{{ bastion_desktop_user }}" }
     - { path: /root, owner: root }
 
-- name: Detect terminal app
-  ansible.builtin.command: rpm -q ptyxis
-  register: _ptyxis_check
-  changed_when: false
-  failed_when: false
+- name: Gather package facts for terminal detection
+  ansible.builtin.package_facts:
+    manager: rpm
 
 - name: Set terminal app
   ansible.builtin.set_fact:
-    _term_app: "{{ 'org.gnome.Ptyxis.desktop' if _ptyxis_check.rc == 0 else 'org.gnome.Terminal.desktop' }}"
+    _term_app: "{{ 'org.gnome.Ptyxis.desktop' if 'ptyxis' in ansible_facts.packages else 'org.gnome.Terminal.desktop' }}"
 
 - name: Set default target to graphical
   ansible.builtin.command:
@@ -77,12 +75,14 @@
   changed_when: true
 
 - name: Start graphical target
-  ansible.builtin.command:
-    cmd: systemctl isolate graphical.target
-  changed_when: true
+  ansible.builtin.systemd:
+    name: graphical.target
+    state: started
+    no_block: true
   ignore_errors: true
 
 - name: Configure GNOME settings via dconf load
+  become: true
   become_user: "{{ bastion_desktop_user }}"
   ansible.builtin.shell:
     cmd: |
@@ -120,7 +120,7 @@
       show-trash=false
       show-mounts=false
 
-      {% if _ptyxis_check.rc == 0 and bastion_desktop_ptyxis_palette | length > 0 %}
+      {% if 'ptyxis' in ansible_facts.packages and bastion_desktop_ptyxis_palette | length > 0 %}
       [org/gnome/Ptyxis]
       default-profile-uuid='${PROFILE_UUID}'
       profile-uuids=['${PROFILE_UUID}']

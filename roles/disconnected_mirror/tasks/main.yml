@@ -86,13 +86,18 @@
     mode: "0600"
 
 - name: Download oc-mirror
-  ansible.builtin.shell: |
-    curl -sL \
-      "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-{{ disconnected_mirror_ocp_version }}/oc-mirror.tar.gz" \
-      | tar xz -C /usr/bin/
-    chmod +x /usr/bin/oc-mirror
-  args:
+  ansible.builtin.unarchive:
+    src: >-
+      https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-{{
+      disconnected_mirror_ocp_version }}/oc-mirror.tar.gz
+    dest: /usr/bin/
+    remote_src: true
     creates: /usr/bin/oc-mirror
+
+- name: Ensure oc-mirror is executable
+  ansible.builtin.file:
+    path: /usr/bin/oc-mirror
+    mode: "0755"
 
 - name: Check if registry already has mirrored content
   ansible.builtin.uri:
@@ -109,14 +114,15 @@
   ansible.builtin.set_fact:
     _mirror_already_done: "{{ (_registry_catalog.json.repositories | default([]) | length) > 10 }}"
 
-- name: Skip mirror — registry already has {{ _registry_catalog.json.repositories | default([]) | length }} repos
+- name: Skip mirror if registry is already populated
   ansible.builtin.debug:
-    msg: "Skipping mirror — registry already populated"
+    msg: "Skipping mirror — registry already has {{ _registry_catalog.json.repositories | default([]) | length }} repos"
   when: _mirror_already_done | bool
 
 - name: Discover operator versions from catalog (this takes a few minutes)
   ansible.builtin.shell:
     cmd: |
+      set -o pipefail
       {% for pkg in disconnected_mirror_packages %}
       oc-mirror list operators \
         --catalog {{ disconnected_mirror_catalog }} \
@@ -125,6 +131,7 @@
         | awk '{print $1, $2, $3}' &
       {% endfor %}
       wait
+    executable: /bin/bash
   register: _all_versions
   changed_when: false
   when:
@@ -188,11 +195,13 @@
   when: not _mirror_already_done | bool
   ansible.builtin.shell:
     cmd: >
+      set -o pipefail &&
       cd /root &&
       oc-mirror --v2 --workspace file://working-dir
       --config=mirror-config.yaml
       docker://{{ disconnected_mirror_registry }}
       2>&1 | tee /root/mirror.log
+    executable: /bin/bash
   timeout: 3600
   vars:
     troshka_timeout: 3600

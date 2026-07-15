@@ -61,7 +61,7 @@
     mode: "0755"
 
 - name: Configure mc alias
-  ansible.builtin.shell:
+  ansible.builtin.command:
     cmd: "mc alias set minio http://localhost:{{ bastion_minio_port }} {{ bastion_minio_user }} {{ bastion_minio_password }}"
   retries: 3
   delay: 10
@@ -70,7 +70,7 @@
   changed_when: mc_result.rc == 0
 
 - name: Create buckets
-  ansible.builtin.shell:
+  ansible.builtin.command:
     cmd: "mc mb minio/{{ item }}"
   loop: "{{ bastion_minio_buckets }}"
   register: bucket_result
