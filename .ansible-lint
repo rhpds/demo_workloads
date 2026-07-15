@@ -18,3 +18,5 @@ mock_modules:
 - ansible.posix.firewalld
 - community.general.sefcontext
 - community.general.htpasswd
+- containers.podman.podman_login
+- containers.podman.podman_image
