@@ -1,0 +1,16 @@
+---
+# MinIO S3-compatible storage on bastion
+
+bastion_minio_image: "quay.io/minio/minio:RELEASE.2025-02-07T23-21-09Z"
+bastion_minio_port: 9000
+bastion_minio_console_port: 9001
+bastion_minio_user: admin
+bastion_minio_password: "{{ common_password }}"
+bastion_minio_data_dir: /opt/minio/s3-volume
+
+# Buckets to create
+bastion_minio_buckets: []
+# Example:
+#   - sno-abi
+#   - sno-ibi
+#   - logs

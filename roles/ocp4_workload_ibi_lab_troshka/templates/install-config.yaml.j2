@@ -1,0 +1,37 @@
+apiVersion: v1
+baseDomain: {{ host_ocp4_base_domain }}
+metadata:
+  name: {{ host_ocp4_cluster_name }}
+compute:
+  - name: worker
+    replicas: 0
+    architecture: amd64
+controlPlane:
+  name: master
+  replicas: 1
+  architecture: amd64
+networking:
+  networkType: OVNKubernetes
+  clusterNetwork:
+    - cidr: {{ host_ocp4_cluster_network_cidr }}
+      hostPrefix: 23
+  serviceNetwork:
+    - {{ host_ocp4_service_network_cidr }}
+  machineNetwork:
+    - cidr: {{ host_ocp4_machine_network_cidr }}
+platform:
+  none: {}
+pullSecret: '{{ host_ocp4_pull_secret }}'
+{% if host_ocp4_ssh_key | length > 0 %}
+sshKey: '{{ host_ocp4_ssh_key }}'
+{% endif %}
+{% if _ibi_image_digest_sources | default([]) | length > 0 %}
+imageDigestSources:
+{% for source in _ibi_image_digest_sources %}
+  - source: "{{ source.source }}"
+    mirrors:
+{% for mirror in source.mirrors %}
+      - "{{ mirror }}"
+{% endfor %}
+{% endfor %}
+{% endif %}

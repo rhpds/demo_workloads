@@ -1,0 +1,38 @@
+---
+- name: Check if DVD device exists
+  ansible.builtin.stat:
+    path: "{{ dvd_repos_device }}"
+  register: _dvd_device
+
+- name: Set up DVD repos
+  when: _dvd_device.stat.exists
+  block:
+    - name: Create DVD mount point
+      ansible.builtin.file:
+        path: "{{ dvd_repos_mount_point }}"
+        state: directory
+        mode: "0755"
+
+    - name: Mount RHEL DVD
+      ansible.posix.mount:
+        path: "{{ dvd_repos_mount_point }}"
+        src: "{{ dvd_repos_device }}"
+        fstype: "{{ dvd_repos_fs_type }}"
+        opts: ro,nofail
+        state: mounted
+
+    - name: Create BaseOS repo
+      ansible.builtin.yum_repository:
+        name: rhel-dvd-baseos
+        description: RHEL DVD BaseOS
+        baseurl: "file://{{ dvd_repos_mount_point }}/BaseOS"
+        enabled: true
+        gpgcheck: false
+
+    - name: Create AppStream repo
+      ansible.builtin.yum_repository:
+        name: rhel-dvd-appstream
+        description: RHEL DVD AppStream
+        baseurl: "file://{{ dvd_repos_mount_point }}/AppStream"
+        enabled: true
+        gpgcheck: false

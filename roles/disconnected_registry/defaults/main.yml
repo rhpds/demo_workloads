@@ -1,0 +1,36 @@
+---
+# Container registry for disconnected/air-gapped environments
+# Works on any bastion with podman (RHEL 8/9/10, any cloud provider)
+
+# Registry hostname (should resolve to the bastion IP)
+disconnected_registry_hostname: "{{ disconnected.registry.hostname | default('infra.' + (lab_network_domain | default('lab.local'))) }}"
+
+# Registry port
+disconnected_registry_port: "{{ disconnected.registry.port | default(8443) }}"
+
+# Registry auth credentials (defaults to common_password from CI)
+disconnected_registry_user: "{{ disconnected.registry.user | default('admin') }}"
+disconnected_registry_password: "{{ common_password }}"
+
+# Container image for the registry
+disconnected_registry_image: "{{ disconnected.registry.image | default('docker.io/library/registry:2') }}"
+
+# Certificate CN (defaults to hostname)
+disconnected_registry_cert_cn: "{{ disconnected.registry.cert_cn | default(disconnected_registry_hostname) }}"
+
+# Static cert/key URLs — if set, download instead of generating
+# Use for labs with pre-existing certs (e.g., RHsyseng 5G RAN lab)
+disconnected_registry_static_cert_url: ""
+disconnected_registry_static_key_url: ""
+
+# Pull-through registry — configure podman mirrors before pulling registry image
+disconnected_registry_pull_through_enabled: "{{ pull_through_registry.enabled | default(false) }}"
+disconnected_registry_pull_through_url: "{{ pull_through_registry.url | default('') }}"
+disconnected_registry_pull_through_orgs: "{{ pull_through_registry.orgs | default({}) }}"
+disconnected_registry_pull_through_user: "{{ pull_through_registry_user | default('') }}"
+disconnected_registry_pull_through_password: "{{ pull_through_registry_password | default('') }}"
+
+# Paths
+disconnected_registry_dir: /opt/registry
+disconnected_registry_cert_path: "{{ disconnected_registry_dir }}/certs/registry-cert.pem"
+disconnected_registry_key_path: "{{ disconnected_registry_dir }}/certs/registry-key.pem"

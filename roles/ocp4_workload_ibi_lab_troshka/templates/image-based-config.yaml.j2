@@ -1,0 +1,16 @@
+apiVersion: v1beta1
+kind: ImageBasedConfig
+metadata:
+  name: ibi-site-config
+hostname: {{ _ibi_target_hostname }}
+releaseRegistry: {{ _ibi_release_registry | default('quay.io') }}
+{% if host_ocp4_ntp_sources | length > 0 %}
+additionalNTPSources:
+{% for ntp in host_ocp4_ntp_sources %}
+  - {{ ntp }}
+{% endfor %}
+{% endif %}
+{% if _ibi_network_config is defined %}
+networkConfig:
+{{ _ibi_network_config | indent(2, first=true) }}
+{% endif %}

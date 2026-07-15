@@ -1,0 +1,266 @@
+---
+- name: Pre-stage IBI lab environment
+  when: ACTION == "provision"
+  block:
+    - name: Get deployed topology from Troshka
+      troshka.cloud.project_info:
+        api_url: "{{ troshka_api_url }}"
+        api_key: "{{ troshka_api_key }}"
+        project_id: "{{ troshka_project_id }}"
+      register: _project_topo
+      delegate_to: localhost
+      become: false
+
+    - name: Find target SNO VM in topology
+      ansible.builtin.set_fact:
+        _ibi_target_vm: >-
+          {{ _project_topo.topology.nodes
+             | selectattr('type', 'equalto', 'vmNode')
+             | selectattr('data.os', 'equalto', 'blank')
+             | selectattr('data.bmcEnabled', 'defined')
+             | first | default({}) }}
+
+    - name: Find BMC network in topology
+      ansible.builtin.set_fact:
+        _ibi_bmc_net: >-
+          {{ _project_topo.topology.nodes
+             | selectattr('type', 'equalto', 'networkNode')
+             | selectattr('data.networkType', 'defined')
+             | selectattr('data.networkType', 'equalto', 'bmc')
+             | first | default({}) }}
+
+    - name: Set IBI target facts
+      ansible.builtin.set_fact:
+        _ibi_target_ip: "{{ _ibi_target_vm.data.nics[0].ip }}"
+        _ibi_target_mac: "{{ _ibi_target_vm.data.nics[0].mac }}"
+        _ibi_target_hostname: "{{ _ibi_target_vm.data.name | default('sno') }}"
+        _ibi_bmc_ip: "{{ _ibi_target_vm.data.bmcIp }}"
+        _ibi_bmc_port: "{{ _ibi_target_vm.data.bmcPort | default(8000) }}"
+        _ibi_bmc_user: "{{ _ibi_bmc_net.data.bmcUsername | default('admin') }}"
+        _ibi_bmc_pass: "{{ _ibi_bmc_net.data.bmcPassword | default(common_password) }}"
+
+    - name: Build image digest sources from pull-through registry
+      when: pull_through_registry is defined and pull_through_registry.enabled | default(false)
+      ansible.builtin.set_fact:
+        _ibi_image_digest_sources: >-
+          {{ _ibi_image_digest_sources | default([]) +
+             [{'source': item.key, 'mirrors': [pull_through_registry.url ~ '/' ~ item.value]}] }}
+      loop: "{{ pull_through_registry.orgs | dict2items }}"
+
+    - name: Build ignition override for pull-through signature policy
+      when: pull_through_registry is defined and pull_through_registry.enabled | default(false)
+      ansible.builtin.set_fact:
+        _ibi_ignition_override: >-
+          {{ {'ignition': {'version': '3.2.0'}, 'storage': {'files': [
+            {'path': '/etc/containers/policy.json', 'mode': 420, 'overwrite': true,
+             'contents': {'source': 'data:,' ~ _policy_json | urlencode}}
+          ]}} | to_json }}
+      vars:
+        _policy_json: >-
+          {"default":[{"type":"insecureAcceptAnything"}],
+          "transports":{"docker":{
+          "{{ pull_through_registry.url }}":[{"type":"insecureAcceptAnything"}],
+          "registry.redhat.io":[{"type":"insecureAcceptAnything"}],
+          "registry.access.redhat.com":[{"type":"insecureAcceptAnything"}]},
+          "docker-daemon":{"":[{"type":"insecureAcceptAnything"}]}}}
+
+    - name: Build network config (NMState format)
+      ansible.builtin.set_fact:
+        _ibi_network_config: |
+          interfaces:
+            - name: enp1s0
+              type: ethernet
+              state: up
+              mac-address: "{{ _ibi_target_mac }}"
+              ipv4:
+                dhcp: false
+                enabled: true
+                address:
+                  - ip: {{ _ibi_target_ip }}
+                    prefix-length: {{ host_ocp4_machine_network_cidr | ansible.utils.ipaddr('prefix') }}
+              ipv6:
+                enabled: false
+          dns-resolver:
+            config:
+              server:
+                - {{ host_ocp4_machine_network_cidr | ansible.utils.ipaddr('1') | ansible.utils.ipaddr('address') }}
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: {{ host_ocp4_machine_network_cidr | ansible.utils.ipaddr('1') | ansible.utils.ipaddr('address') }}
+                next-hop-interface: enp1s0
+
+    # ── Install tools ──
+    - name: Determine OCP version URLs
+      ansible.builtin.set_fact:
+        _ocp_install_url: >-
+          {{ host_ocp4_installer_root_url }}/stable-{{ host_ocp4_installer_version }}/openshift-install-linux.tar.gz
+        _ocp_client_url: >-
+          {{ host_ocp4_installer_root_url }}/stable-{{ host_ocp4_installer_version }}/openshift-client-linux.tar.gz
+
+    - name: Download openshift-install
+      ansible.builtin.unarchive:
+        src: "{{ _ocp_install_url }}"
+        dest: /usr/bin
+        remote_src: true
+        creates: /usr/bin/openshift-install
+      retries: 3
+      delay: 10
+
+    - name: Download oc client
+      ansible.builtin.unarchive:
+        src: "{{ _ocp_client_url }}"
+        dest: /usr/bin
+        remote_src: true
+        creates: /usr/bin/oc
+      retries: 3
+      delay: 10
+
+    # ── Pre-stage configs ──
+    - name: Create lab directory
+      ansible.builtin.file:
+        path: "{{ host_ocp4_ibi_lab_dir }}"
+        state: directory
+        owner: "{{ student_name | default('lab-user') }}"
+        mode: "0755"
+
+    - name: Template IBI config files
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "{{ host_ocp4_ibi_lab_dir }}/{{ item.dest }}"
+        owner: "{{ student_name | default('lab-user') }}"
+        mode: "0644"
+      loop:
+        - src: image-based-installation-config.yaml.j2
+          dest: image-based-installation-config.yaml
+        - src: install-config.yaml.j2
+          dest: install-config.yaml
+        - src: image-based-config.yaml.j2
+          dest: image-based-config.yaml
+
+    - name: Write BMC info file
+      ansible.builtin.copy:
+        dest: "{{ host_ocp4_ibi_lab_dir }}/bmc-info.txt"
+        owner: "{{ student_name | default('lab-user') }}"
+        mode: "0644"
+        content: |
+          bmc_ip {{ _ibi_bmc_ip }}
+          bmc_port {{ _ibi_bmc_port }}
+          bmc_user {{ _ibi_bmc_user }}
+          bmc_pass {{ _ibi_bmc_pass }}
+          target_ip {{ _ibi_target_ip }}
+          target_hostname {{ _ibi_target_hostname }}
+          target_mac {{ _ibi_target_mac }}
+          seed_image {{ host_ocp4_ibi_seed_image }}
+
+    - name: Copy pull secret to bastion
+      ansible.builtin.copy:
+        content: "{{ host_ocp4_pull_secret }}"
+        dest: "{{ item }}"
+        mode: "0600"
+      loop:
+        - /root/openshift_pull.json
+        - "{{ host_ocp4_ibi_lab_dir }}/pull-secret.json"
+
+    - name: Ensure .ssh directory exists for student
+      ansible.builtin.file:
+        path: "/home/{{ student_name | default('lab-user') }}/.ssh"
+        state: directory
+        owner: "{{ student_name | default('lab-user') }}"
+        mode: "0700"
+
+    - name: Copy SSH private key for SNO access
+      ansible.builtin.copy:
+        content: "{{ ssh_provision_key_content | default('') }}\n"
+        dest: "/home/{{ student_name | default('lab-user') }}/.ssh/ibi_key"
+        owner: "{{ student_name | default('lab-user') }}"
+        mode: "0600"
+      when: ssh_provision_key_content | default('') | length > 0
+
+    - name: Open firewall ports for showroom and ISO serving
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      failed_when: false
+      loop:
+        - 80/tcp
+        - 8080/tcp
+
+
+    - name: Create portal token if not set
+      when: troshka_portal_url is not defined or troshka_portal_url == ''
+      block:
+        - name: Create portal token
+          troshka.cloud.portal_token:
+            api_url: "{{ troshka_api_url }}"
+            api_key: "{{ troshka_api_key }}"
+            project_id: "{{ troshka_project_id }}"
+            access_level: console
+          register: _portal
+          delegate_to: localhost
+          become: false
+
+        - name: Set portal URL
+          ansible.builtin.set_fact:
+            troshka_portal_url: "{{ _portal.portal_url }}"
+
+    - name: Set showroom ui-config override with console tab
+      ansible.builtin.set_fact:
+        showroom_content_ui_config: >-
+          {"type":"showroom","default_width":40,
+          "persist_url_state":true,
+          "tabs":[
+          {"name":"Terminal","path":"/wetty","port":443},
+          {"name":"Console (cp-0)",
+          "url":"{{ troshka_portal_url }}/console?vm={{ _ibi_target_vm.id }}&project={{ troshka_project_id }}&name=cp-0"}
+          ]}
+
+    - name: Clear stale showroom state from pattern
+      ansible.builtin.shell:
+        cmd: >-
+          chown -R showroom:showroom /opt/showroom/content /opt/showroom/build 2>/dev/null;
+          su -l showroom -c '
+          podman rm -f antora-builder showroom 2>/dev/null;
+          git config --global --add safe.directory /opt/showroom/content
+          ' 2>/dev/null || true
+      become: true
+      changed_when: false
+      failed_when: false
+
+    - name: Find showroom Route hostname from topology
+      ansible.builtin.set_fact:
+        showroom_host: >-
+          {{ _project_topo.topology.nodes
+             | selectattr('data.subtype', 'defined')
+             | selectattr('data.subtype', 'equalto', 'gateway')
+             | map(attribute='data.externalEndpoints')
+             | first | default([])
+             | selectattr('port', 'equalto', 443)
+             | map(attribute='hostname')
+             | first | default('') }}
+      when: showroom_host is not defined or showroom_host == ''
+
+    - name: Publish user data for showroom terminal
+      agnosticd.core.agnosticd_user_info:
+        data:
+          default_ssh_username: "{{ student_name | default('lab-user') }}"
+          ssh_username: "{{ student_name | default('lab-user') }}"
+          ssh_password: "{{ student_password | default(common_password) }}"
+          default_ssh_password: "{{ student_password | default(common_password) }}"
+          bastion_ssh_user_name: "{{ student_name | default('lab-user') }}"
+          bastion_ssh_password: "{{ student_password | default(common_password) }}"
+          bastion_public_hostname: "{{ showroom_host | default('localhost') }}"
+          console_url: "{{ troshka_portal_url }}/console?vm={{ _ibi_target_vm.id }}&project={{ troshka_project_id }}&name=cp-0"
+      delegate_to: localhost
+      become: false
+
+    - name: IBI lab pre-staging complete
+      ansible.builtin.debug:
+        msg:
+          - "IBI lab environment ready"
+          - "Lab dir: {{ host_ocp4_ibi_lab_dir }}"
+          - "Target: {{ _ibi_target_hostname }} ({{ _ibi_target_ip }})"
+          - "BMC: {{ _ibi_bmc_ip }}:{{ _ibi_bmc_port }}"
+          - "Showroom: https://{{ showroom_host | default('not configured') }}"

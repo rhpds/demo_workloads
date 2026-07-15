@@ -1,0 +1,24 @@
+---
+host_ocp4_ibi_seed_image: "quay.io/redhat-gpte/sno-seed:4.22"
+host_ocp4_ibi_seed_version: "4.22.1"
+host_ocp4_installer_version: "4.22"
+host_ocp4_installer_root_url: https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp
+host_ocp4_ibi_installation_disk: /dev/vda
+
+host_ocp4_cluster_name: "{{ ocp.cluster_name | default('sno') }}"
+host_ocp4_base_domain: "{{ ocp.base_domain | default('sno.local') }}"
+host_ocp4_machine_network_cidr: "{{ networks.cluster.cidr | default('10.0.0.0/24') }}"
+host_ocp4_cluster_network_cidr: 10.128.0.0/14
+host_ocp4_service_network_cidr: 172.30.0.0/16
+
+host_ocp4_pull_secret: "{{ pull_secret | default('{}') }}"
+host_ocp4_ssh_key: "{{ ssh_pub_key | default('') }}"
+
+host_ocp4_bmc_user: admin
+host_ocp4_bmc_password: "{{ common_password }}"
+
+host_ocp4_ntp_sources:
+  - clock.redhat.com
+  - pool.ntp.org
+
+host_ocp4_ibi_lab_dir: "/home/{{ student_name | default('lab-user') }}/ibi-lab"

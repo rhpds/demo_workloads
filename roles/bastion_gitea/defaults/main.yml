@@ -1,0 +1,15 @@
+---
+# Gitea git server on bastion for disconnected/lab environments
+
+bastion_gitea_image: "docker.io/gitea/gitea:1.21"
+bastion_gitea_port: 3000
+bastion_gitea_admin_user: student
+bastion_gitea_admin_password: "{{ common_password }}"
+bastion_gitea_admin_email: "student@{{ lab_network_domain | default('lab.local') }}"
+bastion_gitea_data_dir: /opt/gitea
+
+# Repos to mirror from GitHub into Gitea
+bastion_gitea_repos: []
+# Example:
+#   - url: https://github.com/RHsyseng/5g-ran-deployments-on-ocp-lab.git
+#     name: 5g-ran-deployments-on-ocp-lab

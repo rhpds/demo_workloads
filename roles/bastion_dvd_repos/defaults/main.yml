@@ -1,0 +1,4 @@
+---
+dvd_repos_device: /dev/sr0
+dvd_repos_mount_point: /mnt/rhel-dvd
+dvd_repos_fs_type: iso9660

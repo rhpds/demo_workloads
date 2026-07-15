@@ -1,0 +1,221 @@
+---
+# Mirror operators to a disconnected registry using oc-mirror
+# Runs BEFORE OCP install — only mirrors images, no cluster interaction
+
+# --- Pull-through registry setup (optional) ---
+
+- name: Configure pull-through registry mirrors (registries.conf.d)
+  when: disconnected_mirror_pull_through_enabled | bool
+  ansible.builtin.copy:
+    dest: /etc/containers/registries.conf.d/rhdp-cache.conf
+    mode: "0644"
+    content: |
+      {% for source, org in disconnected_mirror_pull_through_orgs.items() %}
+      [[registry]]
+        prefix = "{{ source }}"
+        location = "{{ disconnected_mirror_pull_through_url }}/{{ org }}"
+
+      {% endfor %}
+
+- name: Rewrite sources to use pull-through registry
+  when: disconnected_mirror_pull_through_enabled | bool
+  ansible.builtin.set_fact:
+    disconnected_mirror_catalog: "{{ _ptr_url }}/{{ _ptr_orgs[_catalog_host] }}/{{ '/'.join(disconnected_mirror_catalog.split('/')[1:]) }}"
+    disconnected_mirror_additional_images: "{{ _rewritten_images }}"
+  vars:
+    _ptr_url: "{{ disconnected_mirror_pull_through_url }}"
+    _ptr_orgs: "{{ disconnected_mirror_pull_through_orgs }}"
+    _catalog_host: "{{ disconnected_mirror_catalog.split('/')[0] }}"
+    _rewritten_images: |
+      {% set ns = namespace(result=[]) %}
+      {% for img in disconnected_mirror_additional_images %}
+      {%   set host = img.split('/')[0] %}
+      {%   if host in _ptr_orgs %}
+      {%     set _ = ns.result.append(_ptr_url + '/' + _ptr_orgs[host] + '/' + '/'.join(img.split('/')[1:])) %}
+      {%   else %}
+      {%     set _ = ns.result.append(img) %}
+      {%   endif %}
+      {% endfor %}
+      {{ ns.result }}
+
+# --- End pull-through registry setup ---
+
+- name: Write pull secret to bastion
+  ansible.builtin.copy:
+    content: "{{ ocp4_pull_secret | default(pull_secret) }}"
+    dest: "{{ disconnected_mirror_pull_secret }}"
+    mode: "0600"
+  when: ocp4_pull_secret is defined or pull_secret is defined
+
+- name: Merge registry credentials into pull secret
+  ansible.builtin.shell: |
+    python3 -c "
+    import json, base64
+    ps = json.load(open('{{ disconnected_mirror_pull_secret }}'))
+    key = base64.b64encode(b'{{ disconnected_mirror_registry_user }}:{{ disconnected_mirror_registry_password }}').decode()
+    ps['auths']['{{ disconnected_mirror_registry }}'] = {'auth': key}
+    json.dump(ps, open('{{ disconnected_mirror_pull_secret }}', 'w'))
+    "
+  changed_when: true
+
+- name: Merge pull-through registry credentials into pull secret
+  when:
+    - disconnected_mirror_pull_through_enabled | bool
+    - disconnected_mirror_pull_through_user | length > 0
+  ansible.builtin.shell: |
+    python3 -c "
+    import json, base64
+    ps = json.load(open('{{ disconnected_mirror_pull_secret }}'))
+    key = base64.b64encode(b'{{ disconnected_mirror_pull_through_user }}:{{ disconnected_mirror_pull_through_password }}').decode()
+    ps['auths']['{{ disconnected_mirror_pull_through_url }}'] = {'auth': key}
+    json.dump(ps, open('{{ disconnected_mirror_pull_secret }}', 'w'))
+    "
+  changed_when: true
+
+- name: Create docker config directory
+  ansible.builtin.file:
+    path: /root/.docker
+    state: directory
+    mode: "0700"
+
+- name: Copy pull secret to docker config
+  ansible.builtin.copy:
+    src: "{{ disconnected_mirror_pull_secret }}"
+    dest: /root/.docker/config.json
+    remote_src: true
+    mode: "0600"
+
+- name: Download oc-mirror
+  ansible.builtin.shell: |
+    curl -sL \
+      "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-{{ disconnected_mirror_ocp_version }}/oc-mirror.tar.gz" \
+      | tar xz -C /usr/bin/
+    chmod +x /usr/bin/oc-mirror
+  args:
+    creates: /usr/bin/oc-mirror
+
+- name: Check if registry already has mirrored content
+  ansible.builtin.uri:
+    url: "https://{{ disconnected_mirror_registry }}/v2/_catalog"
+    user: "{{ disconnected_mirror_registry_user }}"
+    password: "{{ disconnected_mirror_registry_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    return_content: true
+  register: _registry_catalog
+  failed_when: false
+
+- name: Set mirror skip flag
+  ansible.builtin.set_fact:
+    _mirror_already_done: "{{ (_registry_catalog.json.repositories | default([]) | length) > 10 }}"
+
+- name: Skip mirror — registry already has {{ _registry_catalog.json.repositories | default([]) | length }} repos
+  ansible.builtin.debug:
+    msg: "Skipping mirror — registry already populated"
+  when: _mirror_already_done | bool
+
+- name: Discover operator versions from catalog (this takes a few minutes)
+  ansible.builtin.shell:
+    cmd: |
+      {% for pkg in disconnected_mirror_packages %}
+      oc-mirror list operators \
+        --catalog {{ disconnected_mirror_catalog }} \
+        --package {{ pkg.name }} 2>/dev/null \
+        | grep -E "^{{ pkg.name }} " \
+        | awk '{print $1, $2, $3}' &
+      {% endfor %}
+      wait
+  register: _all_versions
+  changed_when: false
+  when:
+    - not _mirror_already_done | bool
+    - disconnected_mirror_auto_pin | default(true) | bool
+
+- name: Pin packages to discovered versions
+  ansible.builtin.set_fact:
+    disconnected_mirror_packages: "{{ _pinned_pkgs }}"
+  vars:
+    _lines: "{{ _all_versions.stdout_lines | default([]) }}"
+    _pinned_pkgs: |
+      {% set ns = namespace(result=[]) %}
+      {% for pkg in disconnected_mirror_packages %}
+      {%   set ns2 = namespace(channels=[]) %}
+      {%   for ch in pkg.channels | default([]) %}
+      {%     set ch_name = ch.name if ch is mapping else ch %}
+      {%     set ns3 = namespace(ver='') %}
+      {%     for line in _lines %}
+      {%       set parts = line.split() %}
+      {%       if parts | length >= 3 and parts[0] == pkg.name and parts[1] == ch_name %}
+      {%         set ns3.ver = parts[2] | regex_replace('^.*\.v', '') %}
+      {%       endif %}
+      {%     endfor %}
+      {%     if ns3.ver %}
+      {%       set _ = ns2.channels.append({'name': ch_name, 'minVersion': ns3.ver, 'maxVersion': ns3.ver}) %}
+      {%     else %}
+      {%       set _ = ns2.channels.append({'name': ch_name}) %}
+      {%     endif %}
+      {%   endfor %}
+      {%   set _ = ns.result.append({'name': pkg.name, 'channels': ns2.channels}) %}
+      {% endfor %}
+      {{ ns.result }}
+  when:
+    - not _mirror_already_done | bool
+    - disconnected_mirror_auto_pin | default(true) | bool
+    - _all_versions is defined
+
+- name: Display pinned package versions
+  ansible.builtin.debug:
+    msg: "{{ _pin_pkg.name }}: {{ _pin_pkg.channels }}"
+  loop: "{{ disconnected_mirror_packages }}"
+  loop_control:
+    loop_var: _pin_pkg
+    label: "{{ _pin_pkg.name }}"
+
+- name: Generate mirror config
+  ansible.builtin.template:
+    dest: /root/mirror-config.yaml
+    mode: "0644"
+    src: mirror-config.yaml.j2
+  when: not _mirror_already_done | bool
+
+- name: Kill any stale oc-mirror processes
+  when: not _mirror_already_done | bool
+  ansible.builtin.shell:
+    cmd: pkill -9 oc-mirror || true
+  changed_when: false
+
+- name: Run oc-mirror
+  when: not _mirror_already_done | bool
+  ansible.builtin.shell:
+    cmd: >
+      cd /root &&
+      oc-mirror --v2 --workspace file://working-dir
+      --config=mirror-config.yaml
+      docker://{{ disconnected_mirror_registry }}
+      2>&1 | tee /root/mirror.log
+  timeout: 3600
+  vars:
+    troshka_timeout: 3600
+  register: mirror_result
+  changed_when: "'mirror time' in mirror_result.stdout"
+  retries: 6
+  delay: 60
+  until: mirror_result.rc == 0 and 'mirroring_errors' not in (mirror_result.stdout | default(''))
+
+- name: Verify registry has mirrored content
+  ansible.builtin.uri:
+    url: "https://{{ disconnected_mirror_registry }}/v2/_catalog"
+    user: "{{ disconnected_mirror_registry_user }}"
+    password: "{{ disconnected_mirror_registry_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    return_content: true
+  register: _verify_catalog
+
+- name: Fail if registry is empty after mirror
+  ansible.builtin.fail:
+    msg: >-
+      Mirror completed but registry has only {{ _verify_catalog.json.repositories | default([]) | length }} repos.
+      Expected at least {{ disconnected_mirror_packages | length }} operator namespaces.
+      Check /root/mirror.log on the bastion for errors.
+  when: (_verify_catalog.json.repositories | default([]) | length) < 5

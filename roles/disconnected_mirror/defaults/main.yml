@@ -1,0 +1,59 @@
+---
+# Mirror operators to a disconnected registry using oc-mirror
+# Requires disconnected_registry role to be run first
+
+# Registry URL (hostname:port)
+disconnected_mirror_registry: "{{ disconnected_registry_hostname | default('infra.lab.local') }}:{{ disconnected_registry_port | default(8443) }}"
+
+# Registry auth
+disconnected_mirror_registry_user: "{{ disconnected_registry_user | default('admin') }}"
+disconnected_mirror_registry_password: "{{ disconnected_registry_password | default(common_password) }}"
+
+# Operator catalog index
+disconnected_mirror_catalog: "registry.redhat.io/redhat/redhat-operator-index:v4.20"
+
+# Catalog source alias name (for golden image compat)
+disconnected_mirror_catalog_alias: ""
+
+# Operator packages to mirror
+disconnected_mirror_packages: []
+# Example:
+#   - name: advanced-cluster-management
+#     channels: [release-2.16]
+#   - name: lvms-operator
+#     channels: [stable-4.20]
+
+# Additional images to mirror
+disconnected_mirror_additional_images: []
+# Example:
+#   - registry.redhat.io/openshift4/ztp-site-generate-rhel8:v4.20.0-1
+
+# Pull secret path
+disconnected_mirror_pull_secret: /root/openshift_pull.json
+
+# OCP version for oc-mirror download
+disconnected_mirror_ocp_version: "4.20"
+
+# Apply mirror manifests to cluster after mirroring
+disconnected_mirror_apply_manifests: true
+
+# Kubeconfig for applying manifests
+disconnected_mirror_kubeconfig: "/home/{{ student_name | default('lab-user') }}/hub-kubeconfig"
+
+# Add registry creds to cluster pull secret
+disconnected_mirror_update_cluster_pull_secret: true
+
+# Trust registry cert on cluster via MachineConfig
+disconnected_mirror_trust_cert_on_cluster: true
+
+# Configure DNS forwarding for lab domain
+disconnected_mirror_configure_dns: true
+disconnected_mirror_dns_domain: "{{ networks.cluster.domain | default(lab_network_domain | default('lab.local')) }}"
+
+# Pull-through registry — when enabled, oc-mirror pulls source images
+# through the Quay proxy cache instead of directly from upstream
+disconnected_mirror_pull_through_enabled: "{{ pull_through_registry.enabled | default(false) }}"
+disconnected_mirror_pull_through_url: "{{ pull_through_registry.url | default('') }}"
+disconnected_mirror_pull_through_orgs: "{{ pull_through_registry.orgs | default({}) }}"
+disconnected_mirror_pull_through_user: "{{ pull_through_registry_user | default('') }}"
+disconnected_mirror_pull_through_password: "{{ pull_through_registry_password | default('') }}"
