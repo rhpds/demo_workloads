@@ -87,7 +87,9 @@
 
 - name: Download oc-mirror
   ansible.builtin.shell: |
-    curl -sL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-{{ disconnected_mirror_ocp_version }}/oc-mirror.tar.gz" | tar xz -C /usr/bin/
+    curl -sL \
+      "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable-{{ disconnected_mirror_ocp_version }}/oc-mirror.tar.gz" \
+      | tar xz -C /usr/bin/
     chmod +x /usr/bin/oc-mirror
   args:
     creates: /usr/bin/oc-mirror
@@ -116,7 +118,11 @@
   ansible.builtin.shell:
     cmd: |
       {% for pkg in disconnected_mirror_packages %}
-      oc-mirror list operators --catalog {{ disconnected_mirror_catalog }} --package {{ pkg.name }} 2>/dev/null | grep -E "^{{ pkg.name }} " | awk '{print $1, $2, $3}' &
+      oc-mirror list operators \
+        --catalog {{ disconnected_mirror_catalog }} \
+        --package {{ pkg.name }} 2>/dev/null \
+        | grep -E "^{{ pkg.name }} " \
+        | awk '{print $1, $2, $3}' &
       {% endfor %}
       wait
   register: _all_versions

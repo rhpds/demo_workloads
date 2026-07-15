@@ -17,7 +17,14 @@
           {% endif %}
           "OverrideFirstRunPage": "",
           "OverridePostUpdatePage": "",
-          "UserMessaging": {"WhatsNew": false, "ExtensionRecommendations": false, "FeatureRecommendations": false, "UrlbarInterventions": false, "SkipOnboarding": true, "MoreFromMozilla": false},
+          "UserMessaging": {
+            "WhatsNew": false,
+            "ExtensionRecommendations": false,
+            "FeatureRecommendations": false,
+            "UrlbarInterventions": false,
+            "SkipOnboarding": true,
+            "MoreFromMozilla": false
+          },
           {% if bastion_firefox_disable_telemetry %}
           "DisableTelemetry": true,
           {% endif %}

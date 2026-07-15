@@ -137,7 +137,28 @@
 - name: Set monitor resolution
   ansible.builtin.copy:
     content: |
-      <monitors version="2"><configuration><logicalmonitor><x>0</x><y>0</y><scale>1</scale><primary>yes</primary><monitor><monitorspec><connector>Virtual-1</connector><vendor>unknown</vendor><product>unknown</product><serial>unknown</serial></monitorspec><mode><width>{{ bastion_desktop_resolution_width }}</width><height>{{ bastion_desktop_resolution_height }}</height><rate>60</rate></mode></monitor></logicalmonitor></configuration></monitors>
+      <monitors version="2">
+        <configuration>
+          <logicalmonitor>
+            <x>0</x><y>0</y>
+            <scale>1</scale>
+            <primary>yes</primary>
+            <monitor>
+              <monitorspec>
+                <connector>Virtual-1</connector>
+                <vendor>unknown</vendor>
+                <product>unknown</product>
+                <serial>unknown</serial>
+              </monitorspec>
+              <mode>
+                <width>{{ bastion_desktop_resolution_width }}</width>
+                <height>{{ bastion_desktop_resolution_height }}</height>
+                <rate>60</rate>
+              </mode>
+            </monitor>
+          </logicalmonitor>
+        </configuration>
+      </monitors>
     dest: "{{ item.path }}/.config/monitors.xml"
     owner: "{{ item.owner }}"
     mode: "0644"
@@ -148,7 +169,28 @@
 - name: Set GDM monitor resolution
   ansible.builtin.copy:
     content: |
-      <monitors version="2"><configuration><logicalmonitor><x>0</x><y>0</y><scale>1</scale><primary>yes</primary><monitor><monitorspec><connector>Virtual-1</connector><vendor>unknown</vendor><product>unknown</product><serial>unknown</serial></monitorspec><mode><width>{{ bastion_desktop_resolution_width }}</width><height>{{ bastion_desktop_resolution_height }}</height><rate>60</rate></mode></monitor></logicalmonitor></configuration></monitors>
+      <monitors version="2">
+        <configuration>
+          <logicalmonitor>
+            <x>0</x><y>0</y>
+            <scale>1</scale>
+            <primary>yes</primary>
+            <monitor>
+              <monitorspec>
+                <connector>Virtual-1</connector>
+                <vendor>unknown</vendor>
+                <product>unknown</product>
+                <serial>unknown</serial>
+              </monitorspec>
+              <mode>
+                <width>{{ bastion_desktop_resolution_width }}</width>
+                <height>{{ bastion_desktop_resolution_height }}</height>
+                <rate>60</rate>
+              </mode>
+            </monitor>
+          </logicalmonitor>
+        </configuration>
+      </monitors>
     dest: /var/lib/gdm/.config/monitors.xml
     owner: gdm
     mode: "0644"
@@ -172,4 +214,3 @@
     state: restarted
     daemon_reload: true
   ignore_errors: true
-

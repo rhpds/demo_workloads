@@ -48,7 +48,9 @@
 
 - name: Ensure plan file exists
   ansible.builtin.get_url:
-    url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/hub.yml"
+    url: >-
+      https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+      lab_version }}/lab-materials/lab-env-data/hub-cluster/hub.yml
     dest: "/root/hub.yml"
     mode: "0644"
   retries: 5
@@ -114,7 +116,10 @@
     replace: "{{ item.value }}"
   loop:
     - {regexp: "demo_environment_here", value: "true", file: "/opt/showroom/lab-repo/site.yml"}
-    - {regexp: "admin_password_here", value: "{{ strong_admin_password }}", file: "/opt/showroom/lab-repo/documentation/modules/ROOT/pages/_attributes.adoc"}
+    - regexp: "admin_password_here"
+      value: "{{ strong_admin_password }}"
+      file: >-
+        /opt/showroom/lab-repo/documentation/modules/ROOT/pages/_attributes.adoc
 
 - name: Build showroom with Antora
   containers.podman.podman_container:
@@ -142,10 +147,26 @@
   retries: 5
   delay: 10
   loop:
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/webfiles/index.html", destination: "/opt/showroom/lab-content/index.html", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/webfiles/split.css", destination: "/opt/showroom/lab-content/split.css", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/webfiles/tabs.css", destination: "/opt/showroom/lab-content/tabs.css", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/webfiles/tabs.js", destination: "/opt/showroom/lab-content/tabs.js", mode: "0644"}
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/webfiles/index.html
+      destination: "/opt/showroom/lab-content/index.html"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/webfiles/split.css
+      destination: "/opt/showroom/lab-content/split.css"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/webfiles/tabs.css
+      destination: "/opt/showroom/lab-content/tabs.css"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/webfiles/tabs.js
+      destination: "/opt/showroom/lab-content/tabs.js"
+      mode: "0644"
 
 - name: Configure showroom index.html
   ansible.builtin.replace:
@@ -164,12 +185,36 @@
   retries: 5
   delay: 10
   loop:
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-apache.service", destination: "/etc/systemd/system/podman-showroom-apache.service", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-wetty.service", destination: "/etc/systemd/system/podman-showroom-wetty.service", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-firefox.service", destination: "/etc/systemd/system/podman-showroom-firefox.service", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/firefox-config.tar.gz", destination: "/tmp/firefox-config.tar.gz", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-traefik.service", destination: "/etc/systemd/system/podman-showroom-traefik.service", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/showroom/traefik-config.tar.gz", destination: "/tmp/traefik-config.tar.gz", mode: "0644"}
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-apache.service
+      destination: "/etc/systemd/system/podman-showroom-apache.service"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-wetty.service
+      destination: "/etc/systemd/system/podman-showroom-wetty.service"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-firefox.service
+      destination: "/etc/systemd/system/podman-showroom-firefox.service"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/firefox-config.tar.gz
+      destination: "/tmp/firefox-config.tar.gz"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/podman-showroom-traefik.service
+      destination: "/etc/systemd/system/podman-showroom-traefik.service"
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/showroom/traefik-config.tar.gz
+      destination: "/tmp/traefik-config.tar.gz"
+      mode: "0644"
 
 - name: Start showroom apache
   ansible.builtin.systemd:

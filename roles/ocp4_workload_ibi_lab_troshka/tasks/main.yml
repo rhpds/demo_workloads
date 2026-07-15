@@ -57,7 +57,12 @@
           ]}} | to_json }}
       vars:
         _policy_json: >-
-          {"default":[{"type":"insecureAcceptAnything"}],"transports":{"docker":{"{{ pull_through_registry.url }}":[{"type":"insecureAcceptAnything"}],"registry.redhat.io":[{"type":"insecureAcceptAnything"}],"registry.access.redhat.com":[{"type":"insecureAcceptAnything"}]},"docker-daemon":{"":[{"type":"insecureAcceptAnything"}]}}}
+          {"default":[{"type":"insecureAcceptAnything"}],
+          "transports":{"docker":{
+          "{{ pull_through_registry.url }}":[{"type":"insecureAcceptAnything"}],
+          "registry.redhat.io":[{"type":"insecureAcceptAnything"}],
+          "registry.access.redhat.com":[{"type":"insecureAcceptAnything"}]},
+          "docker-daemon":{"":[{"type":"insecureAcceptAnything"}]}}}
 
     - name: Build network config (NMState format)
       ansible.builtin.set_fact:
@@ -204,7 +209,13 @@
     - name: Set showroom ui-config override with console tab
       ansible.builtin.set_fact:
         showroom_content_ui_config: >-
-          {"type":"showroom","default_width":40,"persist_url_state":true,"tabs":[{"name":"Terminal","path":"/wetty","port":443},{"name":"Console (cp-0)","url":"{{ troshka_portal_url }}/console?vm={{ _ibi_target_vm.id }}&project={{ troshka_project_id }}&name=cp-0"}]}
+          {"type":"showroom","default_width":40,
+          "persist_url_state":true,
+          "tabs":[
+          {"name":"Terminal","path":"/wetty","port":443},
+          {"name":"Console (cp-0)",
+          "url":"{{ troshka_portal_url }}/console?vm={{ _ibi_target_vm.id }}&project={{ troshka_project_id }}&name=cp-0"}
+          ]}
 
     - name: Clear stale showroom state from pattern
       ansible.builtin.shell:

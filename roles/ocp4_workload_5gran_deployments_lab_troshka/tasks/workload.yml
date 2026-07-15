@@ -15,7 +15,10 @@
   block:
     - name: Clone lab repo from Gitea
       ansible.builtin.git:
-        repo: "http://student:{{ common_password }}@infra.{{ networks.cluster.domain | default('lab.local') }}:{{ bastion_gitea_port | default(3000) }}/student/5g-ran-deployments-on-ocp-lab.git"
+        repo: >-
+          http://student:{{ common_password }}@infra.{{
+          networks.cluster.domain | default('lab.local') }}:{{
+          bastion_gitea_port | default(3000) }}/student/5g-ran-deployments-on-ocp-lab.git
         dest: /tmp/gitea-patch
         version: "{{ lab_version }}"
         force: true
@@ -58,7 +61,9 @@
 
           sed -i "s|openshift-v4\.20\.8-disconnected|openshift-v${_VER}-disconnected|g" lab-materials/hub-config/operators-config/01_ai_config.yaml
           sed -i "s|openshift-v4\.20\.10-disconnected|openshift-v${_VER}-disconnected|g" lab-materials/hub-config/operators-config/01_ai_config.yaml
-          sed -i "s|infra\.5g-deployment\.lab:8443/openshift/release-images:.*-x86_64|${_REL}|g" lab-materials/hub-config/operators-config/01_ai_config.yaml
+          sed -i \
+            "s|infra\.5g-deployment\.lab:8443/openshift/release-images:.*-x86_64|${_REL}|g" \
+            lab-materials/hub-config/operators-config/01_ai_config.yaml
           sed -i "s|openshift-v4\.20\.8-disconnected|openshift-v${_VER}-disconnected|g" lab-materials/sno-deployment/03_agentclusterinstall.yaml
 
           python3 -c "

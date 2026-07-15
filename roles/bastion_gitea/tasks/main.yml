@@ -75,7 +75,11 @@
   retries: 5
   delay: 10
   until: gitea_user_result.rc == 0 or "user already exists" in (gitea_user_result.stdout | default('') + gitea_user_result.stderr | default(''))
-  failed_when: gitea_user_result.rc != 0 and "user already exists" not in (gitea_user_result.stdout | default('') + gitea_user_result.stderr | default(''))
+  failed_when: >-
+    gitea_user_result.rc != 0 and
+    "user already exists" not in
+    (gitea_user_result.stdout | default('') +
+    gitea_user_result.stderr | default(''))
   changed_when: gitea_user_result.rc == 0
 
 - name: Mirror repos into Gitea

@@ -289,7 +289,7 @@
         crypt_scheme: bcrypt
         name: admin
         password: 'r3dh4t1!'
-        mode: 0640
+        mode: "0640"
 
     - name: Ensure disconnected registry service is enabled and running
       ansible.builtin.systemd:
