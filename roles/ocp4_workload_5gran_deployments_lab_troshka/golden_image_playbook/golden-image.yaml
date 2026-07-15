@@ -1,5 +1,5 @@
 ---
-- name: telco 5G lab Golden Image
+- name: Telco 5G lab Golden Image
   hosts: 10.6.76.211
   #hosts: hypervisor.hrdrt.dynamic.opentlc.com
   vars:
@@ -65,7 +65,7 @@
           - nmstate
           - container-selinux
           - shadow-utils
-        state: latest
+        state: present
 
     - name: Ensure required Python modules are installed
       ansible.builtin.pip:
@@ -118,6 +118,7 @@
         - {binary: "oc", version: "stable", tag: "{{ ocp4_major_release }}"}
         - {binary: "kubectl", version: "latest", tag: "{{ ocp4_major_release }}"}
         - {binary: "openshift-installer", version: "stable", tag: "{{ ocp4_minor_release }}"}
+      changed_when: true
 
     - name: Ensure oc-mirror tooling is present
       ansible.builtin.command:
@@ -198,6 +199,7 @@
     - name: Ensure DNSMasq file applies the proper SELinux context
       ansible.builtin.command:
         cmd: restorecon -rv /opt/dnsmasq/
+      changed_when: true
 
     - name: Ensure DNSMasq service is enabled and running
       ansible.builtin.systemd:
@@ -308,6 +310,7 @@
     - name: Ensure trusted certs are updated
       ansible.builtin.command:
         cmd: update-ca-trust extract
+      changed_when: true
 
     - name: Ensure S3 storage config files exist
       ansible.builtin.get_url:
@@ -380,15 +383,17 @@
     - name: Execute mirroring
       ansible.builtin.shell:
         # yamllint disable rule:line-length
-        cmd: ~/oc-mirror --parallel-images=10 --v2 --workspace file:// --config=mirror-config.yaml docker://infra.5g-deployment.lab:8443 | tee -a /root/mirroring.log
+        cmd: set -o pipefail && ~/oc-mirror --parallel-images=10 --v2 --workspace file:// --config=mirror-config.yaml docker://infra.5g-deployment.lab:8443 | tee -a /root/mirroring.log
         # yamllint enable rule:line-length
+        executable: /bin/bash
       args:
         chdir: /root/
       tags: oc-mirror
       register: command_result
+      changed_when: true
       failed_when: "'some errors occurred during the mirroring' in (command_result.stdout + command_result.stderr)"
 
     # Leave this as the last task in the playbook.
     - name: Golden image tasks complete
-      debug:
+      ansible.builtin.debug:
         msg: "Golden Image tasks completed successfully."

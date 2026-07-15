@@ -138,6 +138,7 @@
     dest: /opt/showroom/lab-content/
     remote_src: true
     directory_mode: true
+    mode: "0644"
 
 - name: Download showroom html files
   ansible.builtin.get_url:
@@ -268,7 +269,9 @@
     mode: "0755"
 
 - name: Create htpasswd entry
-  ansible.builtin.shell: echo "{{ strong_lab_password }}" | htpasswd -i -n "{{ bastion_ssh_user_name }}"
+  ansible.builtin.shell:
+    cmd: set -o pipefail && echo "{{ strong_lab_password }}" | htpasswd -i -n "{{ bastion_ssh_user_name }}"
+    executable: /bin/bash
   register: lab_htpass_user
   changed_when: false
 
@@ -294,7 +297,7 @@
     enabled: true
     name: podman-showroom-traefik
 
-- name: pre_workload tasks complete
-  debug:
+- name: Pre_workload tasks complete
+  ansible.builtin.debug:
     msg: "Pre-Workload tasks completed successfully."
   when: not silent|bool

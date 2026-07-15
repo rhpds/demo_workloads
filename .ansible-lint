@@ -13,3 +13,10 @@ skip_list:
 mock_modules:
 - agnosticd.core.agnosticd_user_info
 - troshka.cloud.project_info
+- troshka.cloud.portal_token
+- ansible.posix.mount
+- ansible.posix.firewalld
+- community.general.sefcontext
+- community.general.htpasswd
+- containers.podman.podman_login
+- containers.podman.podman_image
