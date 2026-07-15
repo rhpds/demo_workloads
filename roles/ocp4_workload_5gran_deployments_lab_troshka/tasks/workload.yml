@@ -273,10 +273,26 @@
     dest: "{{ item.destination }}"
     mode: "{{ item.mode }}"
   loop:
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/argocd-patch.json", destination: "/tmp/argocd-openshift-gitops-patch.json", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/hub-operators-argoapps.yaml", destination: "/tmp/hub-operators-argoapps.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/sno1-argoapp.yaml", destination: "/tmp/sno1-argoapp.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/lab-env-data/hub-cluster/argocd-clusterrolebinding.yaml", destination: "/tmp/argocd-clusterrolebinding.yaml", mode: "0644"}
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/hub-cluster/argocd-patch.json
+      destination: /tmp/argocd-openshift-gitops-patch.json
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/hub-cluster/hub-operators-argoapps.yaml
+      destination: /tmp/hub-operators-argoapps.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/hub-cluster/sno1-argoapp.yaml
+      destination: /tmp/sno1-argoapp.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/lab-env-data/hub-cluster/argocd-clusterrolebinding.yaml
+      destination: /tmp/argocd-clusterrolebinding.yaml
+      mode: "0644"
   delay: 10
   retries: 5
 
@@ -286,6 +302,7 @@
     dest: "/home/{{ student_name }}/hub-kubeconfig"
     remote_src: true
     owner: "{{ student_name }}"
+    mode: "0600"
 
 - name: Remove kubeadmin user
   kubernetes.core.k8s:
@@ -345,6 +362,7 @@
     cmd: >-
       oc patch operatorhub cluster --type merge
       -p '{"spec":{"disableAllDefaultSources":true}}'
+  changed_when: true
 
 - name: Install OpenShift GitOps operator
   kubernetes.core.k8s:
@@ -663,7 +681,9 @@
 
 - name: Download SNO ssh key from gitea
   ansible.builtin.get_url:
-    url: "http://infra.5g-deployment.lab:3000/student/5g-ran-deployments-on-ocp-lab/raw/branch/{{ lab_version }}/lab-materials/lab-env-data/hypervisor/ssh-key"
+    url: >-
+      http://infra.5g-deployment.lab:3000/student/5g-ran-deployments-on-ocp-lab/raw/branch/{{
+      lab_version }}/lab-materials/lab-env-data/hypervisor/ssh-key
     dest: "/home/{{ student_name }}/.ssh/snokey"
     mode: "0400"
     owner: "{{ student_name }}"
@@ -724,7 +744,11 @@
   until:
     - snoseed_status.resources is defined
     - snoseed_status.resources | default([]) | length > 0
-    - snoseed_status.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Completed') | selectattr('status', 'equalto', 'True') | list | length > 0
+    - >-
+      snoseed_status.resources[0].status.conditions | default([])
+      | selectattr('type', 'equalto', 'Completed')
+      | selectattr('status', 'equalto', 'True')
+      | list | length > 0
 
 - name: Extract SNO Seed kubeconfig
   ansible.builtin.shell:
@@ -745,19 +769,71 @@
     dest: "{{ item.destination }}"
     mode: "{{ item.mode }}"
   loop:
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_oadp_deployment.yaml", destination: "/tmp/02_oadp_deployment.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_lca_deployment.yaml", destination: "/tmp/02_lca_deployment.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_sriov_deployment.yaml", destination: "/tmp/02_sriov_deployment.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_ptp_deployment.yaml", destination: "/tmp/02_ptp_deployment.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_logging_deployment.yaml", destination: "/tmp/02_logging_deployment.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/02_lvms_deployment.yaml", destination: "/tmp/02_lvms_deployment.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_sriovoperatorconfig.yaml", destination: "/tmp/03_sriovoperatorconfig.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_sriov-nw-du-netdev.yaml", destination: "/tmp/03_sriov-nw-du-netdev.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_sriov-nw-du-vfio.yaml", destination: "/tmp/03_sriov-nw-du-vfio.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_loggingconfig.yaml", destination: "/tmp/03_loggingconfig.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/03_ptpoperatorconfig.yaml", destination: "/tmp/03_ptpoperatorconfig.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/04_performance_profile.yaml", destination: "/tmp/04_performance_profile.yaml", mode: "0644"}
-    - {url: "https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{ lab_version }}/lab-materials/sno-config/05_TunedPerformancePatch.yaml", destination: "/tmp/05_TunedPerformancePatch.yaml", mode: "0644"}
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/02_oadp_deployment.yaml
+      destination: /tmp/02_oadp_deployment.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/02_lca_deployment.yaml
+      destination: /tmp/02_lca_deployment.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/02_sriov_deployment.yaml
+      destination: /tmp/02_sriov_deployment.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/02_ptp_deployment.yaml
+      destination: /tmp/02_ptp_deployment.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/02_logging_deployment.yaml
+      destination: /tmp/02_logging_deployment.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/02_lvms_deployment.yaml
+      destination: /tmp/02_lvms_deployment.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/03_sriovoperatorconfig.yaml
+      destination: /tmp/03_sriovoperatorconfig.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/03_sriov-nw-du-netdev.yaml
+      destination: /tmp/03_sriov-nw-du-netdev.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/03_sriov-nw-du-vfio.yaml
+      destination: /tmp/03_sriov-nw-du-vfio.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/03_loggingconfig.yaml
+      destination: /tmp/03_loggingconfig.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/03_ptpoperatorconfig.yaml
+      destination: /tmp/03_ptpoperatorconfig.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/04_performance_profile.yaml
+      destination: /tmp/04_performance_profile.yaml
+      mode: "0644"
+    - url: >-
+        https://raw.githubusercontent.com/{{ repo_user }}/5g-ran-deployments-on-ocp-lab/{{
+        lab_version }}/lab-materials/sno-config/05_TunedPerformancePatch.yaml
+      destination: /tmp/05_TunedPerformancePatch.yaml
+      mode: "0644"
   retries: 5
   delay: 10
 
@@ -869,7 +945,7 @@
   retries: 60
   delay: 10
 
-- name: workload tasks complete
-  debug:
+- name: Workload tasks complete
+  ansible.builtin.debug:
     msg: "Workload Tasks completed successfully."
   when: not silent|bool
