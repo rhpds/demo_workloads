@@ -1,0 +1,11 @@
+---
+- name: Wait for SSH on {{ item.name }} ({{ item.host }}:{{ item.port }})
+  ansible.builtin.wait_for:
+    host: "{{ item.host }}"
+    port: "{{ item.port }}"
+    timeout: 2400
+    sleep: 15
+    state: started
+  loop: "{{ router_wait_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"

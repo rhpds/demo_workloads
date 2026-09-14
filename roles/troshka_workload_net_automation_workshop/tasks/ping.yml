@@ -1,0 +1,3 @@
+---
+- name: Ping via troshka exec (SSH from host)
+  ansible.builtin.ping:

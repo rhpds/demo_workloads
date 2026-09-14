@@ -1,0 +1,21 @@
+---
+# Lab L2 — static IPs from the Troshka template (rtr1/rtr3: bootstrap ISO; rtr2/rtr4: serial).
+ansible_user: admin
+ansible_password: admin@123  # pragma: allowlist secret
+ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+router_admin_password: admin@123  # pragma: allowlist secret
+router_admin_password_hash: >-
+  $6$rounds=656000$RhuC34cmuzCHCMm4$WkE4W/Vbf/92undkQoE39EGCJJvXMlsji5Xxj/CBktcD8hGrXLIKtjRb8Gelz1iR/MVuS/CEhvFkSJxCWmXfs.
+router_bootstrap_timeout: 600
+# ISO-bootstrap routers (rtr1/rtr3): wait for SSH after CD-ROM day-0 config.
+router_ssh_boot_retries: 40
+router_ssh_boot_delay: 30
+
+# Per-host lab addresses (Troshka inventory may override ansible_host from topology).
+rtr1_ansible_host: 172.20.20.10
+rtr2_ansible_host: 172.20.20.20
+rtr3_ansible_host: 172.20.20.30
+rtr4_ansible_host: 172.20.20.40
+
+workshop_control_lab_ip: 172.20.20.5

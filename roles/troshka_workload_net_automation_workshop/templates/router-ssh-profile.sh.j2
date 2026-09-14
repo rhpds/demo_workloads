@@ -1,0 +1,12 @@
+ssh() {
+  case "$1" in
+{% for router in workshop_routers %}
+    {{ router.name }})
+      sshpass -p '{{ router_admin_password }}' /usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ router_ssh_user }}@{{ router.ip }}" "${@:2}"
+      ;;
+{% endfor %}
+    *)
+      /usr/bin/ssh "$@"
+      ;;
+  esac
+}

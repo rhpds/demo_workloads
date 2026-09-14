@@ -1,0 +1,13 @@
+enable
+configure terminal
+hostname {{ inventory_hostname }}
+username admin privilege 15 role network-admin secret 0 {{ router_admin_password }}
+interface Management1
+ ip address {{ ansible_host }}/24
+ no shutdown
+management api http-commands
+ no shutdown
+management ssh
+ no shutdown
+end
+write memory

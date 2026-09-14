@@ -1,0 +1,101 @@
+---
+- name: Check RHSM registration
+  ansible.builtin.command: subscription-manager identity
+  register: rhsm_identity
+  changed_when: false
+  failed_when: false
+
+- name: Install Katello CA consumer RPM from controller
+  ansible.builtin.copy:
+    src: "{{ katello_ca_rpm_path }}"
+    dest: /tmp/katello-ca-consumer-latest.noarch.rpm
+    mode: "0644"
+  when:
+    - rhsm_identity.rc != 0
+    - reg_org | default('') | length > 0
+    - reg_activation_key | default('') | length > 0
+
+- name: Install Katello CA consumer package
+  ansible.builtin.command: rpm -Uvh --replacepkgs --replacefiles /tmp/katello-ca-consumer-latest.noarch.rpm
+  register: katello_ca_install
+  changed_when: "'Updating / installing' in (katello_ca_install.stdout | default(''))"
+  failed_when: katello_ca_install.rc != 0
+  when:
+    - rhsm_identity.rc != 0
+    - reg_org | default('') | length > 0
+    - reg_activation_key | default('') | length > 0
+
+- name: Point RHSM at Satellite HA endpoint
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - "subscription-manager config --server.hostname={{ satellite_url }}"
+    - "subscription-manager config --server.prefix=/rhsm"
+  changed_when: true
+  when:
+    - rhsm_identity.rc != 0
+    - satellite_ha | default(false) | bool
+    - reg_org | default('') | length > 0
+    - reg_activation_key | default('') | length > 0
+
+- name: Register with RHSM (demosat activation key, Satellite HA)
+  ansible.builtin.command: >-
+    subscription-manager register
+    --org={{ reg_org }}
+    --activationkey={{ reg_activation_key }}
+    --serverurl=https://{{ satellite_url }}
+    --baseurl=https://{{ satellite_url }}/pulp/repos
+    --force
+  register: rhsm_activation_ha
+  changed_when: "'The system has been registered' in (rhsm_activation_ha.stdout | default(''))"
+  failed_when: rhsm_activation_ha.rc != 0
+  when:
+    - rhsm_identity.rc != 0
+    - satellite_ha | default(false) | bool
+    - reg_org | default('') | length > 0
+    - reg_activation_key | default('') | length > 0
+
+- name: Register with RHSM (demosat activation key)
+  ansible.builtin.command: >-
+    subscription-manager register
+    --org={{ reg_org }}
+    --activationkey={{ reg_activation_key }}
+    --force
+  register: rhsm_activation
+  changed_when: "'The system has been registered' in (rhsm_activation.stdout | default(''))"
+  failed_when: rhsm_activation.rc != 0
+  when:
+    - rhsm_identity.rc != 0
+    - not (satellite_ha | default(false) | bool)
+    - reg_org | default('') | length > 0
+    - reg_activation_key | default('') | length > 0
+
+- name: Register with RHSM (portal username/password)
+  ansible.builtin.command: >-
+    subscription-manager register
+    --username {{ reg_user }}
+    --password {{ reg_pass }}
+    --auto-attach
+    --force
+  register: rhsm_userpass
+  changed_when: "'The system has been registered' in (rhsm_userpass.stdout | default(''))"
+  failed_when: false
+  no_log: true
+  when:
+    - rhsm_identity.rc != 0
+    - reg_org | default('') | length == 0
+    - reg_user | default('') | length > 0
+    - reg_pass | default('') | length > 0
+
+- name: Verify RHSM registration
+  ansible.builtin.command: subscription-manager identity
+  register: rhsm_verify
+  changed_when: false
+  failed_when: rhsm_verify.rc != 0
+
+- name: Enable RHEL 9 repos
+  ansible.builtin.command: >-
+    subscription-manager repos
+    --enable=rhel-9-for-x86_64-baseos-rpms
+    --enable=rhel-9-for-x86_64-appstream-rpms
+  changed_when: true
+  failed_when: false

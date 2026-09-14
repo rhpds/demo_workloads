@@ -1,0 +1,166 @@
+---
+- name: Require Troshka API key
+  ansible.builtin.assert:
+    that:
+      - troshka_api_key | default(lookup('env', 'TROSHKA_API_KEY')) | length > 0
+    fail_msg: Run the prepare play first or set TROSHKA_API_KEY
+  run_once: true
+
+- name: Probe SSH via Troshka API
+  ansible.builtin.uri:
+    url: >-
+      {{ troshka_api_url }}/api/v1/projects/{{ troshka_project_id }}/vms/{{ troshka_vm_id }}/exec
+    method: POST
+    headers:
+      Authorization: "Bearer {{ troshka_api_key | default(lookup('env', 'TROSHKA_API_KEY')) }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      command: show version
+      method: ssh
+      username: "{{ ansible_user }}"
+      password: "{{ ansible_password }}"
+      timeout: 30
+    status_code: [200, 503]
+    timeout: 60
+  register: ssh_probe
+  delegate_to: localhost
+  when: not (force_router_bootstrap | default(false) | bool)
+
+- name: Decide whether SSH probe succeeded
+  ansible.builtin.set_fact:
+    router_ssh_probe_ok: >-
+      {{
+        ssh_probe.status == 200
+        and ssh_probe.json.output is defined
+        and (ssh_probe.json.output | length) > 20
+        and (ssh_probe.json.error | default('') | length) == 0
+        and not (ssh_probe.json.output | lower is search(router_ssh_failure_pattern))
+      }}
+  when: not (force_router_bootstrap | default(false) | bool)
+
+- name: Skip router already reachable over SSH
+  ansible.builtin.meta: end_host
+  when:
+    - not (force_router_bootstrap | default(false) | bool)
+    - router_ssh_probe_ok | default(false) | bool
+
+- name: Wait for SSH after ISO bootstrap (day-0 from CD-ROM)
+  ansible.builtin.uri:
+    url: >-
+      {{ troshka_api_url }}/api/v1/projects/{{ troshka_project_id }}/vms/{{ troshka_vm_id }}/exec
+    method: POST
+    headers:
+      Authorization: "Bearer {{ troshka_api_key | default(lookup('env', 'TROSHKA_API_KEY')) }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      command: show version
+      method: ssh
+      username: "{{ ansible_user }}"
+      password: "{{ ansible_password }}"
+      timeout: 30
+    status_code: [200, 503]
+    timeout: 60
+  register: iso_ssh_wait
+  until: >-
+    iso_ssh_wait.status == 200
+    and iso_ssh_wait.json.output is defined
+    and iso_ssh_wait.json.output | length > 20
+    and (iso_ssh_wait.json.error | default('') | length) == 0
+    and not (iso_ssh_wait.json.output | lower is search(router_ssh_failure_pattern))
+  retries: "{{ router_ssh_boot_retries | default(40) }}"
+  delay: "{{ router_ssh_boot_delay | default(30) }}"
+  delegate_to: localhost
+  when: (router_bootstrap_method | default('serial')) == 'iso'
+
+- name: Skip ISO-bootstrap router once SSH is up
+  ansible.builtin.meta: end_host
+  when: (router_bootstrap_method | default('serial')) == 'iso'
+
+- name: Wait for serial console readiness
+  ansible.builtin.uri:
+    url: >-
+      {{ troshka_api_url }}/api/v1/projects/{{ troshka_project_id }}/vms/{{ troshka_vm_id }}/exec
+    method: POST
+    headers:
+      Authorization: "Bearer {{ troshka_api_key | default(lookup('env', 'TROSHKA_API_KEY')) }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      command: "{{ router_serial_ready_command }}"
+      method: serial
+      username: "{{ serial_bootstrap_user }}"
+      password: "{{ serial_bootstrap_password }}"
+      timeout: "{{ router_serial_probe_timeout | default(25) }}"
+    status_code: [200, 503]
+    timeout: "{{ (router_serial_probe_timeout | default(25) | int) + 15 }}"
+  register: serial_boot
+  until: >-
+    serial_boot.status == 200
+    and serial_boot.json.output is defined
+    and router_serial_ready_match in serial_boot.json.output
+  retries: "{{ router_serial_boot_retries | default(8) }}"
+  delay: "{{ router_serial_boot_delay | default(10) }}"
+  failed_when: >-
+    serial_boot.status == 503
+    and (
+      'VGA' in (serial_boot.json.detail | default(''))
+      or 'not responding' in (serial_boot.json.detail | default('') | lower)
+      or 'blank' in (serial_boot.json.detail | default('') | lower)
+    )
+  delegate_to: localhost
+  when:
+    - (router_bootstrap_method | default('serial')) == 'serial'
+    - router_serial_ready_command is defined
+
+- name: Fail when serial console never becomes ready
+  ansible.builtin.fail:
+    msg: >-
+      Serial console not ready for {{ inventory_hostname }} after
+      {{ router_serial_boot_retries | default(8) }} attempts
+      (last: {{ serial_boot.json.detail | default(serial_boot.json.error | default('no response')) }})
+  when:
+    - (router_bootstrap_method | default('serial')) == 'serial'
+    - router_serial_ready_command is defined
+    - serial_boot is defined
+    - serial_boot.status | default(200) != 200
+      or serial_boot.json.output is not defined
+      or router_serial_ready_match not in (serial_boot.json.output | default(''))
+
+- name: Push day-0 config via serial console
+  ansible.builtin.uri:
+    url: >-
+      {{ troshka_api_url }}/api/v1/projects/{{ troshka_project_id }}/vms/{{ troshka_vm_id }}/exec
+    method: POST
+    headers:
+      Authorization: "Bearer {{ troshka_api_key | default(lookup('env', 'TROSHKA_API_KEY')) }}"
+      Content-Type: application/json
+    body_format: json
+    body:
+      command: "{{ lookup('template', router_config_template) }}"
+      method: serial
+      username: "{{ serial_bootstrap_user }}"
+      password: "{{ serial_bootstrap_password }}"
+      timeout: "{{ router_bootstrap_timeout }}"
+    status_code: [200, 503]
+    timeout: "{{ (router_bootstrap_timeout | int) + 60 }}"
+  register: serial_push
+  delegate_to: localhost
+  when: (router_bootstrap_method | default('serial')) == 'serial'
+
+- name: Fail when serial bootstrap returns an error
+  ansible.builtin.fail:
+    msg: >-
+      Serial bootstrap failed for {{ inventory_hostname }}:
+      {{ serial_push.json.error | default(serial_push.json.detail | default('unknown error')) }}
+  when:
+    - (router_bootstrap_method | default('serial')) == 'serial'
+    - serial_push.status | default(200) != 200
+      or (serial_push.json.error is defined and serial_push.json.error | length > 0)
+      or (serial_push.json.detail is defined and serial_push.json.detail | length > 0)
+
+- name: Show serial bootstrap output
+  ansible.builtin.debug:
+    msg: "{{ serial_push.json.output | default('') | truncate(400) }}"
+  when: (router_bootstrap_method | default('serial')) == 'serial'

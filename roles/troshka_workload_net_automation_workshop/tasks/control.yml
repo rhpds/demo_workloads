@@ -1,0 +1,77 @@
+---
+- name: Log in to registry.redhat.io (root)
+  ansible.builtin.command: >-
+    podman login registry.redhat.io
+    -u {{ reg_user }}
+    -p {{ reg_pass }}
+  no_log: true
+  changed_when: true
+  failed_when: false
+  when:
+    - reg_user | default('') | length > 0
+    - reg_pass | default('') | length > 0
+
+- name: Log in to registry.redhat.io ({{ control_user }})
+  ansible.builtin.command: >-
+    podman login registry.redhat.io
+    -u {{ reg_user }}
+    -p {{ reg_pass }}
+  become: true
+  become_user: "{{ control_user }}"
+  environment:
+    HOME: "{{ control_home }}"
+  no_log: true
+  changed_when: true
+  failed_when: false
+  when:
+    - reg_user | default('') | length > 0
+    - reg_pass | default('') | length > 0
+
+- name: Pull AAP execution environment image
+  ansible.builtin.command: "podman pull {{ control_ee_image }}"
+  become: true
+  become_user: "{{ control_user }}"
+  environment:
+    HOME: "{{ control_home }}"
+  changed_when: true
+  failed_when: false
+  async: 3600
+  poll: 0
+
+- name: Pull network execution environment image
+  ansible.builtin.command: "podman pull {{ network_ee_image }}:latest"
+  become: true
+  become_user: "{{ control_user }}"
+  environment:
+    HOME: "{{ control_home }}"
+  changed_when: true
+  failed_when: false
+  async: 3600
+  poll: 0
+
+- name: Clone upstream workshop repository
+  ansible.builtin.command:
+    argv:
+      - git
+      - clone
+      - --branch
+      - main
+      - "{{ workshop_repo_url }}"
+      - "{{ workshop_repo_dir }}"
+    creates: "{{ workshop_repo_dir }}/.git/HEAD"
+  become: true
+  become_user: "{{ control_user }}"
+  environment:
+    HOME: "{{ control_home }}"
+
+- name: Install bundled RPMs from workshop repo
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - install
+      - -y
+      - --nogpgcheck
+      - "{{ workshop_repo_dir }}/rpms/*.rpm"
+  register: control_rpms
+  changed_when: "'Nothing to do' not in control_rpms.stdout"
+  failed_when: false

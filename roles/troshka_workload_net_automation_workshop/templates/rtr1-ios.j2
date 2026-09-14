@@ -1,0 +1,19 @@
+enable
+Admin12345!
+configure terminal
+hostname {{ inventory_hostname }}
+no enable secret
+username admin privilege 15 password 0 {{ router_admin_password }}
+enable password 0 {{ router_admin_password }}
+ip ssh version 2
+line con 0
+ logging synchronous
+line vty 0 4
+ login local
+ transport input ssh
+!
+netconf-yang
+restconf
+!
+end
+write memory

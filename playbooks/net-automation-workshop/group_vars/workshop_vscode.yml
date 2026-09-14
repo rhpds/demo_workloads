@@ -1,0 +1,22 @@
+---
+ansible_user: rhel
+ansible_become: true
+ansible_become_method: sudo
+
+vscode_user: rhel
+vscode_home: /home/rhel
+code_server_port: 8080
+
+workshop_tarball_url: https://github.com/rhpds/zt-network-automation-workshop/archive/refs/heads/main.tar.gz
+workshop_extract_dir: /tmp/zt-network-automation-workshop-main
+network_ee_image: quay.io/acme_corp/network-ee
+router_wrappers_enabled: true
+
+router_ssh_user: admin
+router_admin_password: admin@123  # pragma: allowlist secret
+
+workshop_routers:
+  - { name: rtr1, ip: 172.20.20.10 }
+  - { name: rtr2, ip: 172.20.20.20 }
+  - { name: rtr3, ip: 172.20.20.30 }
+  - { name: rtr4, ip: 172.20.20.40 }

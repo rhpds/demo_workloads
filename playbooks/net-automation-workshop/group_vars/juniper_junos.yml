@@ -1,0 +1,13 @@
+---
+ansible_network_os: junipernetworks.junos.junos
+ansible_connection: ansible.netcommon.netconf
+ansible_port: 22
+router_bootstrap_method: iso
+serial_bootstrap_user: root
+serial_bootstrap_password: ""
+router_config_template: rtr3-junos.j2
+# vSRX can take 10-15+ min after power-on before serial CLI is usable.
+router_serial_ready_command: cli show system uptime
+router_serial_ready_match: Protocols started
+router_serial_boot_retries: 40
+router_serial_boot_delay: 30

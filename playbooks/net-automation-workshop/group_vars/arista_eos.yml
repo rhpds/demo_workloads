@@ -1,0 +1,12 @@
+---
+ansible_network_os: arista.eos.eos
+ansible_connection: ansible.netcommon.network_cli
+router_bootstrap_method: serial
+serial_bootstrap_user: admin
+serial_bootstrap_password: ""
+router_config_template: rtr-eos.j2
+router_serial_ready_command: show version
+router_serial_ready_match: Arista
+router_serial_probe_timeout: 25
+router_serial_boot_retries: 6
+router_serial_boot_delay: 10

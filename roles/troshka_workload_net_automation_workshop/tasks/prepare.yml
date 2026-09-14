@@ -1,0 +1,67 @@
+---
+- name: Require Troshka project id
+  ansible.builtin.assert:
+    that:
+      - troshka_project_id | length > 0
+    fail_msg: Set TROSHKA_PROJECT_ID
+
+- name: Create Troshka API key when not provided
+  ansible.builtin.uri:
+    url: "{{ troshka_api_url }}/api/v1/api-keys/"
+    method: POST
+    headers:
+      Content-Type: application/json
+    body_format: json
+    body:
+      name: "netlab-bootstrap-{{ ansible_date_time.epoch }}"
+    status_code: [200, 201]
+    return_content: true
+  register: troshka_api_key_create
+  when: lookup('env', 'TROSHKA_API_KEY') | default('') | length == 0
+  no_log: true
+
+- name: Remember Troshka API key
+  ansible.builtin.set_fact:
+    troshka_api_key: >-
+      {{
+        lookup('env', 'TROSHKA_API_KEY')
+        | default(troshka_api_key_create.json.key, true)
+      }}
+  no_log: true
+
+- name: Install troshka.cloud collection
+  ansible.builtin.command:
+    argv:
+      - ansible-galaxy
+      - collection
+      - install
+      - "{{ troshka_collection_dir }}"
+      - -p
+      - "{{ lookup('env', 'HOME') }}/.ansible/collections"
+      - --force
+  changed_when: true
+
+- name: Stage Katello CA RPM for RHSM registration
+  ansible.builtin.get_url:
+    url: "https://{{ satellite_url }}/pub/katello-ca-consumer-latest.noarch.rpm"
+    dest: "{{ katello_ca_rpm_path }}"
+    mode: "0644"
+    validate_certs: false
+  when:
+    - reg_org | default('') | length > 0
+    - reg_activation_key | default('') | length > 0
+
+- name: Ensure generated inventory directory exists
+  ansible.builtin.file:
+    path: "{{ workshop_inventory_path | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Write Troshka dynamic inventory plugin config
+  ansible.builtin.template:
+    src: troshka_inventory.yml.j2
+    dest: "{{ workshop_inventory_path }}"
+    mode: "0600"
+
+- name: Refresh dynamic inventory
+  ansible.builtin.meta: refresh_inventory

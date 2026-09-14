@@ -1,0 +1,139 @@
+= troshka_workload_net_automation_workshop
+
+Bootstrap the Troshka https://github.com/rhpds/troshka[`net-automation-workshop`] lab:
+
+* vscode VM — code-server, workshop content, router CLI helpers
+* control VM — AAP EE images, upstream workshop repo
+* routers — day-0 serial console config (IOS-XE, EOS, Junos vSRX)
+* showroom — sync base64 nginx/ui overlays into the Troshka template YAML
+
+== Run from demo_workloads
+
+[source,bash]
+----
+export TROSHKA_PROJECT_ID=<project-uuid>
+export TROSHKA_API_URL=http://localhost:8200   # optional
+export TROSHKA_WORKSHOP_TEMPLATE=~/troshka/example_templates/net-automation-workshop.yaml
+
+# RHSM — demosat activation key (see RHSM section below)
+SATCREDS=~/zt-ansiblebu-agnosticv/includes/secrets/demosat-rhel-8-and-9-latest.yaml
+VAULT=~/secrets/vault_pw.txt
+vault_var() {
+  ansible localhost -m debug -a "var=$1" -e @"$SATCREDS" --vault-password-file "$VAULT" 2>/dev/null \
+    | python3 -c "import sys,re; m=re.search(r'\"$1\": \"([^\"]+)\"', sys.stdin.read()); print(m.group(1) if m else '')"
+}
+export SATELLITE_URL=$(vault_var satellite_url)
+export REG_ORG=$(vault_var satellite_org)
+export REG_ACTIVATION_KEY=$(vault_var satellite_activationkey)
+export SATELLITE_HA=true
+
+cd ~/demo_workloads/playbooks/net-automation-workshop
+INV=".generated/${TROSHKA_PROJECT_ID}/inventory.troshka.yml"
+
+# Prepare (writes dynamic inventory)
+ansible-playbook main.yml --limit localhost -e "workshop_inventory_path=${INV}"
+
+# Full first-time bootstrap
+ansible-playbook -i "${INV}" main.yml --skip-tags always
+
+# Individual steps
+ansible-playbook -i "${INV}" main.yml --skip-tags always --tags bootstrap
+ansible-playbook -i "${INV}" main.yml --skip-tags always --tags configure_routers
+ansible-playbook -i "${INV}" main.yml --skip-tags always --tags wait_routers
+ansible-playbook -i "${INV}" main.yml --skip-tags always --tags sync_overlays
+----
+
+== Inventory file naming
+
+The `troshka.cloud.troshka` inventory plugin only accepts `*.troshka.yml` or
+`*.troshka.yaml`. The role default (`workshop_inventory_path` →
+`.generated/troshka_inventory.yml`) is not loaded by the plugin — `-i` runs
+then match zero hosts and skip all plays.
+
+Override with a per-project path (required for parallel bootstrap of multiple
+labs):
+
+[source,bash]
+----
+-e workshop_inventory_path=.generated/${TROSHKA_PROJECT_ID}/inventory.troshka.yml
+----
+
+Verify:
+
+[source,bash]
+----
+ansible-inventory -i "${INV}" --list
+----
+
+The `prepare` play (tag `always`) writes the inventory file and creates a
+Troshka API key when `TROSHKA_API_KEY` is unset.
+
+Install `troshka.cloud` once before parallel runs — concurrent
+`ansible-galaxy collection install --force` races on
+`~/.ansible/collections/ansible_collections/troshka/cloud`.
+
+== RHSM (demosat activation key)
+
+Bootstrap on Troshka template deploys registers unregistered `rhel-9.6` VMs
+against demosat. The secret file matches other RHDP labs:
+
+`~/zt-ansiblebu-agnosticv/includes/secrets/demosat-rhel-8-and-9-latest.yaml`
+
+(password `~/secrets/vault_pw.txt`). Individual fields are inline-vault — use
+`vault_var` to extract `satellite_url`, `satellite_org`, and
+`satellite_activationkey` (not `ansible-vault view` on the whole file).
+
+This differs from the original CI at
+`~/zt-ansiblebu-agnosticv/zt-ansiblebu/ansible-network-automation-workshop/`,
+which composes `zt-ans-bu-lab-developer-cnv` with `repo_method: none` and
+`use_content_view: true` — demosat repos are wired at provision time, not by
+this bootstrap playbook.
+
+=== Satellite HA (`set_repositories_satellite_ha: true`)
+
+The secret sets `set_repositories_satellite_ha: true`. Demosat sits behind a
+load balancer — plain `subscription-manager register --org … --activationkey …`
+hits `subscription.rhsm.redhat.com` and fails. Export `SATELLITE_HA=true` (role
+default) so registration:
+
+. Downloads the Katello CA RPM from `https://{{ satellite_url }}/pub/…`
+. Sets `server.hostname` and `server.prefix=/rhsm`
+. Registers with `--serverurl=https://{{ satellite_url }}` and
+  `--baseurl=https://{{ satellite_url }}/pulp/repos`
+
+Do **not** pass `reg_user` / `reg_pass` for vscode RHSM. Those are portal creds
+and use a different code path (`reg_org` must be empty).
+
+=== Optional portal creds (control VM only)
+
+`podman login registry.redhat.io` on the control VM uses portal creds from
+`~/agnosticv/includes/secrets/aap2-casc-registry-creds.yaml`
+(`redhat_username` / `redhat_password`). Pass only when pulling the AAP EE:
+
+[source,bash]
+----
+CREDS=~/agnosticv/includes/secrets/aap2-casc-registry-creds.yaml
+export REG_USER=$(vault_var redhat_username)
+export REG_PASS=$(vault_var redhat_password)
+
+ansible-playbook -i "${INV}" main.yml --skip-tags always --tags bootstrap \
+  -e reg_user="$REG_USER" -e reg_pass="$REG_PASS"
+----
+
+Portal creds do not affect vscode registration when `reg_org` is set.
+
+See `playbooks/net-automation-workshop/PATTERN-BUILD.md` for full troubleshooting.
+
+== Tags
+
+|===
+| Tag | Action
+
+| `bootstrap` | Ping, vscode + control VM setup
+| `configure_routers` | Day-0 router config (ISO wait for rtr1/rtr3; serial for rtr2/rtr4)
+| `wait_routers` | Wait for router SSH from control
+| `sync_overlays` | Patch `NGINX_B64` / UI overlays in template YAML
+| `full` | Everything except prepare (which always runs)
+|===
+
+Force router re-bootstrap: `-e force_router_bootstrap=true`

@@ -1,0 +1,7 @@
+---
+ansible_network_os: cisco.ios.ios
+ansible_connection: ansible.netcommon.network_cli
+router_bootstrap_method: iso
+serial_bootstrap_user: admin
+serial_bootstrap_password: admin@123  # pragma: allowlist secret
+router_config_template: rtr1-ios.j2

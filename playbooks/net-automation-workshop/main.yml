@@ -1,0 +1,64 @@
+---
+- name: Prepare Troshka dynamic inventory
+  hosts: localhost
+  gather_facts: true
+  tags: [always]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: prepare.yml
+
+- name: Verify Troshka SSH connectivity
+  hosts: workshop_control:workshop_vscode
+  gather_facts: false
+  tags: [bootstrap, full]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: ping.yml
+
+- name: Bootstrap vscode
+  hosts: workshop_vscode
+  become: true
+  tags: [bootstrap, full]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: vscode.yml
+
+- name: Bootstrap control
+  hosts: workshop_control
+  become: true
+  tags: [bootstrap, full]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: control.yml
+
+- name: Wait for routers from control
+  hosts: workshop_control
+  gather_facts: false
+  tags: [wait_routers, full]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: wait_routers.yml
+
+- name: Configure workshop routers (ISO or serial day-0)
+  hosts: routers
+  gather_facts: false
+  tags: [configure_routers, full]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: configure_routers.yml
+
+- name: Sync showroom overlay blobs into Troshka template
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [sync_overlays, full]
+  tasks:
+    - ansible.builtin.import_role:
+        name: troshka_workload_net_automation_workshop
+        tasks_from: sync_showroom_overlays.yml

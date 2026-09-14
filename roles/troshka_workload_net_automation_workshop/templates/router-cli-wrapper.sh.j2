@@ -1,0 +1,2 @@
+#!/bin/bash
+exec sshpass -p '{{ router_admin_password }}' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ router_ssh_user }}@{{ router_ip }} "$@"

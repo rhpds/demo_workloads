@@ -1,0 +1,39 @@
+---
+- name: Require workshop template
+  ansible.builtin.stat:
+    path: "{{ workshop_template_path }}"
+  register: template_stat
+
+- name: Fail when template is missing
+  ansible.builtin.assert:
+    that: template_stat.stat.exists
+    fail_msg: "Template not found at {{ workshop_template_path }}"
+
+- name: Read overlay source files
+  ansible.builtin.slurp:
+    src: "{{ item.value }}"
+  loop: "{{ overlay_sources | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: overlay_files
+
+- name: Patch base64 fields in workshop template
+  ansible.builtin.replace:
+    path: "{{ workshop_template_path }}"
+    regexp: '({{ item.item.key }}: )"[^"]*"'
+    replace: '\1"{{ item.content }}"'
+  loop: "{{ overlay_files.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  register: patch_results
+
+- name: Report overlay sync result
+  ansible.builtin.debug:
+    msg: "{{ item.item.item.key }}: {{ 'updated' if item.changed else 'already current' }}"
+  loop: "{{ patch_results.results }}"
+  loop_control:
+    label: "{{ item.item.item.key }}"
+
+- name: Show updated template path
+  ansible.builtin.debug:
+    msg: "Updated {{ workshop_template_path }}"

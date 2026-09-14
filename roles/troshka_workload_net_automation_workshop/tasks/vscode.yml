@@ -1,0 +1,194 @@
+---
+- name: Ensure vscode home is owned by {{ vscode_user }}
+  ansible.builtin.file:
+    path: "{{ vscode_home }}"
+    state: directory
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0755"
+
+- name: Ensure code-server config directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0755"
+  loop:
+    - "{{ vscode_home }}/.local/share/code-server/User"
+    - "{{ vscode_home }}/.config/code-server"
+
+- name: Register with RHSM
+  ansible.builtin.import_tasks: register_rhsm.yml
+
+- name: Install code-server config
+  ansible.builtin.template:
+    src: code-server-config.yaml.j2
+    dest: "{{ vscode_home }}/.config/code-server/config.yaml"
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0644"
+
+- name: Install code-server user settings
+  ansible.builtin.template:
+    src: code-server-settings.json.j2
+    dest: "{{ vscode_home }}/.local/share/code-server/User/settings.json"
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0644"
+
+- name: Install code-server
+  ansible.builtin.shell: curl -fsSL https://code-server.dev/install.sh | sh
+  args:
+    creates: /usr/bin/code-server
+
+- name: Enable and start code-server
+  ansible.builtin.systemd:
+    name: "code-server@{{ vscode_user }}"
+    enabled: true
+    state: started
+
+- name: Allow passwordless sudo for {{ vscode_user }}
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/{{ vscode_user }}_sudoers
+    content: "%{{ vscode_user }} ALL=(ALL:ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Enable linger for {{ vscode_user }}
+  ansible.builtin.command: "loginctl enable-linger {{ vscode_user }}"
+  changed_when: true
+
+- name: Remove insights motd snippets
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/profile.d/insights-client.sh
+    - /etc/motd.d/insights-client
+
+- name: Install vscode packages
+  ansible.builtin.dnf:
+    name:
+      - git
+      - podman
+      - sshpass
+      - python3-pip
+    state: present
+
+- name: Install ansible-navigator for {{ vscode_user }}
+  ansible.builtin.command:
+    argv:
+      - pip3
+      - install
+      - --user
+      - ansible-navigator
+    creates: "{{ vscode_home }}/.local/bin/ansible-navigator"
+  become: true
+  become_user: "{{ vscode_user }}"
+  environment:
+    HOME: "{{ vscode_home }}"
+
+- name: Pull network EE image
+  ansible.builtin.command: >-
+    podman pull {{ network_ee_image }}:latest
+  become: true
+  become_user: "{{ vscode_user }}"
+  environment:
+    HOME: "{{ vscode_home }}"
+  changed_when: true
+  failed_when: false
+  async: 3600
+  poll: 0
+
+- name: Download workshop content tarball
+  ansible.builtin.get_url:
+    url: "{{ workshop_tarball_url }}"
+    dest: /tmp/zt-network-automation-workshop.tar.gz
+    mode: "0644"
+
+- name: Extract workshop content
+  ansible.builtin.unarchive:
+    src: /tmp/zt-network-automation-workshop.tar.gz
+    dest: /tmp
+    remote_src: true
+    creates: "{{ workshop_extract_dir }}"
+
+- name: Install bundled RPMs
+  ansible.builtin.dnf:
+    name: "{{ workshop_extract_dir }}/rpms/*.rpm"
+    state: present
+    disable_gpg_check: true
+  failed_when: false
+
+- name: Check for workshop exercise directory
+  ansible.builtin.stat:
+    path: "{{ workshop_extract_dir }}/network-workshop"
+  register: workshop_content
+
+- name: Install workshop exercise files
+  ansible.builtin.copy:
+    src: "{{ workshop_extract_dir }}/network-workshop/"
+    dest: "{{ vscode_home }}/network-workshop/"
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: preserve
+    remote_src: true
+  when: workshop_content.stat.isdir | default(workshop_content.stat['isdir'] | default(false))
+
+- name: Check for ansible-navigator config in workshop content
+  ansible.builtin.stat:
+    path: "{{ workshop_extract_dir }}/network-workshop/.ansible-navigator.yml"
+  register: navigator_config
+
+- name: Install ansible-navigator config
+  ansible.builtin.copy:
+    src: "{{ workshop_extract_dir }}/network-workshop/.ansible-navigator.yml"
+    dest: "{{ vscode_home }}/.ansible-navigator.yml"
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0644"
+    remote_src: true
+  when: navigator_config.stat.exists | default(navigator_config.stat['exists'] | default(false))
+
+- name: Ensure workshop lab inventory directory exists
+  ansible.builtin.file:
+    path: "{{ vscode_home }}/network-workshop/lab_inventory"
+    state: directory
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0755"
+
+- name: Stage Troshka lab inventory for student exercises
+  ansible.builtin.copy:
+    src: lab_inventory/hosts
+    dest: "{{ vscode_home }}/network-workshop/lab_inventory/hosts"
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0644"
+
+- name: Ensure local bin is on PATH for {{ vscode_user }}
+  ansible.builtin.lineinfile:
+    path: "{{ vscode_home }}/.bashrc"
+    line: 'export PATH="$HOME/.local/bin:$PATH"'
+    create: true
+    owner: "{{ vscode_user }}"
+    group: "{{ vscode_user }}"
+    mode: "0644"
+
+- name: Install router CLI wrappers
+  ansible.builtin.template:
+    src: router-cli-wrapper.sh.j2
+    dest: "/usr/local/bin/{{ item.name }}"
+    mode: "0755"
+  vars:
+    router_ip: "{{ item.ip }}"
+  loop: "{{ workshop_routers }}"
+  when: router_wrappers_enabled | bool
+
+- name: Install router ssh() helper profile
+  ansible.builtin.template:
+    src: router-ssh-profile.sh.j2
+    dest: /etc/profile.d/router-ssh.sh
+    mode: "0644"
+  when: router_wrappers_enabled | bool

@@ -1,0 +1,61 @@
+---
+troshka_api_url: "{{ lookup('env', 'TROSHKA_API_URL') | default('http://localhost:8200', true) }}"
+troshka_project_id: "{{ lookup('env', 'TROSHKA_PROJECT_ID') | default('', true) }}"
+troshka_collection_dir: "{{ lookup('env', 'TROSHKA_COLLECTION_DIR') | default(lookup('env', 'HOME') ~ '/troshka-ansible-collection', true) }}"
+workshop_inventory_path: "{{ playbook_dir }}/.generated/{{ troshka_project_id }}/inventory.troshka.yml"
+
+reg_user: "{{ lookup('env', 'REG_USER') | default('', true) }}"
+reg_pass: "{{ lookup('env', 'REG_PASS') | default('', true) }}"
+reg_org: "{{ lookup('env', 'REG_ORG') | default(lookup('env', 'SATELLITE_ORG') | default('Red_Hat_RHDP_Labs', true), true) }}"
+reg_activation_key: "{{ lookup('env', 'REG_ACTIVATION_KEY') | default(lookup('env', 'SATELLITE_ACTIVATION_KEY') | default('', true), true) }}"
+satellite_url: "{{ lookup('env', 'SATELLITE_URL') | default('demosat-ha.infra.demo.redhat.com', true) }}"
+satellite_ha: "{{ lookup('env', 'SATELLITE_HA') | default(lookup('env', 'SET_REPOSITORIES_SATELLITE_HA') | default('true', true), true) | bool }}"
+katello_ca_rpm_path: "{{ playbook_dir }}/.generated/katello-ca-consumer-latest.noarch.rpm"
+workshop_template_path: "{{ lookup('env', 'TROSHKA_WORKSHOP_TEMPLATE') | default(lookup('env', 'HOME') ~ '/troshka/example_templates/net-automation-workshop.yaml', true) }}"
+
+troshka_exec_method: ssh
+ansible_remote_tmp: /tmp/.ansible-${USER}/tmp
+ansible_user: rhel
+ansible_password: ansible123!  # pragma: allowlist secret
+
+vscode_user: rhel
+vscode_home: /home/rhel
+code_server_port: 8080
+workshop_tarball_url: https://github.com/rhpds/zt-network-automation-workshop/archive/refs/heads/main.tar.gz
+workshop_extract_dir: /tmp/zt-network-automation-workshop-main
+network_ee_image: quay.io/acme_corp/network-ee
+router_wrappers_enabled: true
+router_ssh_user: admin
+router_admin_password: admin@123  # pragma: allowlist secret
+
+workshop_routers:
+  - { name: rtr1, ip: 172.20.20.10 }
+  - { name: rtr2, ip: 172.20.20.20 }
+  - { name: rtr3, ip: 172.20.20.30 }
+  - { name: rtr4, ip: 172.20.20.40 }
+
+control_user: rhel
+control_ee_image: registry.redhat.io/ansible-automation-platform-26/ee-supported-rhel9:latest
+control_home: /home/rhel
+workshop_repo_url: https://github.com/rhpds/zt-network-automation-workshop.git
+workshop_repo_dir: /home/rhel/zt-network-automation-workshop
+
+router_bootstrap_timeout: 600
+# Substrings matched case-insensitively against exec API SSH output.
+router_ssh_failure_pattern: >-
+  ssh:|connection timed out|connection refused|no route to host|
+  permission denied|host key verification failed|could not resolve|
+  network is unreachable|connection reset
+router_serial_probe_timeout: 25
+router_serial_boot_retries: 8
+router_serial_boot_delay: 10
+router_wait_hosts:
+  - { name: rtr1, host: 172.20.20.10, port: 22 }
+  - { name: rtr2, host: 172.20.20.20, port: 22 }
+  - { name: rtr3, host: 172.20.20.30, port: 22 }
+  - { name: rtr4, host: 172.20.20.40, port: 22 }
+
+overlay_sources:
+  UI_CONFIG_B64: "{{ role_path }}/files/configs/showroom-ui-config.yml"
+  USER_DATA_B64: "{{ role_path }}/files/configs/showroom-user-data.yml"
+  NGINX_B64: "{{ role_path }}/files/configs/showroom-nginx.conf"
