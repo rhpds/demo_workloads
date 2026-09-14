@@ -1,0 +1,24 @@
+---
+- name: Resolve openshift-workloads cluster entry for {{ cclm_cluster_name }}
+  ansible.builtin.set_fact:
+    cclm_cluster_entry: >-
+      {{
+        clusters[cclm_cluster_name]
+        if (clusters is defined and cclm_cluster_name in clusters)
+        else clusters['default']
+      }}
+  when: clusters is defined
+
+- name: Fail when no cluster API credentials are available
+  ansible.builtin.fail:
+    msg: >-
+      clusters['{{ cclm_cluster_name }}'] (or clusters.default) is required.
+      For multi-cluster labs pass both entries in extra_vars, or run once per
+      cluster with target_map.cluster_id.
+  when: clusters is not defined or cclm_cluster_entry is not defined
+
+- name: Set Kubernetes API facts for {{ cclm_cluster_name }}
+  ansible.builtin.set_fact:
+    cclm_k8s_host: "{{ cclm_cluster_entry.api_url }}"
+    cclm_k8s_token: "{{ cclm_cluster_entry.api_token }}"
+    cclm_k8s_validate_certs: false

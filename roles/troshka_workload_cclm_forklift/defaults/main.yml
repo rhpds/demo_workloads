@@ -1,0 +1,12 @@
+---
+cclm_forklift_controller_name: forklift-controller
+cclm_forklift_namespace: openshift-mtv
+cclm_forklift_storage_map_name: cclm-storage-map
+cclm_forklift_network_map_name: cclm-network-map
+
+cclm_submariner_broker_name: submariner-broker
+cclm_submariner_broker_namespace: submariner-operator
+
+cclm_forklift_provider_type: ocp
+cclm_forklift_ready_retries: 60
+cclm_forklift_ready_delay: 20

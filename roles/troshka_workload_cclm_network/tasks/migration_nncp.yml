@@ -1,0 +1,25 @@
+---
+- name: Apply NNCP static migration IP — {{ cclm_cluster_name ~ '/' ~ cclm_node.key }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: nmstate.io/v1
+      kind: NodeNetworkConfigurationPolicy
+      metadata:
+        name: "cclm-migration-{{ cclm_node.key }}"
+      spec:
+        nodeSelector:
+          kubernetes.io/hostname: "{{ cclm_node.key }}"
+        desiredState:
+          interfaces:
+            - name: "{{ cclm_migration_parent_iface }}"
+              type: ethernet
+              state: up
+              ipv4:
+                enabled: true
+                address:
+                  - ip: "{{ cclm_node.value }}"
+                    prefix-length: "{{ cclm_migration_prefix_length }}"

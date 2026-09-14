@@ -1,0 +1,47 @@
+---
+- name: Set cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Resolve Submariner broker API for {{ cclm_cluster_name }}
+  ansible.builtin.set_fact:
+    cclm_submariner_broker_api: >-
+      {{
+        clusters[cclm_source_cluster].api_url
+        if not cclm_submariner_broker_cluster | bool
+        else cclm_k8s_host
+      }}
+    cclm_submariner_broker_token: >-
+      {{
+        clusters[cclm_source_cluster].api_token
+        if not cclm_submariner_broker_cluster | bool
+        else cclm_k8s_token
+      }}
+  when: clusters is defined
+
+- name: Join Submariner on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: submariner.io/v1alpha1
+      kind: Submariner
+      metadata:
+        name: submariner
+        namespace: "{{ cclm_submariner_broker_namespace }}"
+      spec:
+        broker: k8s
+        brokerK8sApiServer: "{{ cclm_submariner_broker_api | default(cclm_k8s_host) }}"
+        brokerK8sApiServerToken: "{{ cclm_submariner_broker_token | default(cclm_k8s_token) }}"
+        brokerK8sCA: ""
+        cableDriver: wireguard
+        clusterId: "{{ cclm_cluster_name }}"
+        clusterCidr: "10.128.0.0/14"
+        serviceCidr: "172.30.0.0/16"
+        natEnabled: true
+        debug: false
+        globalCidr: ""
+        loadBalancerEnable: false

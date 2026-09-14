@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: troshka_workload_cclm_network
+  author: RHDP
+  description: Migration network NAD, NNCPs, MetalLB pools, and external ODF for CCLM.
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.16"
+  platforms: []
+  galaxy_tags:
+    - ocp
+    - cclm
+    - network
+dependencies:
+  - role: troshka_workload_cclm_common

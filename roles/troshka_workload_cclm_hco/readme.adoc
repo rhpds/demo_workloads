@@ -1,0 +1,6 @@
+= troshka_workload_cclm_hco
+
+Patches the CNV `HyperConverged` CR to enable decentralized live migration and point
+live migrations at the `lm-network` NAD (created by `troshka_workload_cclm_network`).
+
+Run after operators and before Forklift/MTV configuration.

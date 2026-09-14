@@ -1,0 +1,64 @@
+---
+- name: Ensure namespace {{ cclm_operator.namespace }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cclm_operator.namespace }}"
+
+- name: Ensure OperatorGroup {{ cclm_operator.operatorgroup }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: "{{ cclm_operator.operatorgroup }}"
+        namespace: "{{ cclm_operator.namespace }}"
+      spec:
+        targetNamespaces: "{{ cclm_operator.target_namespaces }}"
+
+- name: Subscribe operator — {{ cclm_cluster_name ~ '/' ~ cclm_operator.package }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: "{{ cclm_operator.package }}"
+        namespace: "{{ cclm_operator.namespace }}"
+      spec:
+        channel: "{{ cclm_operator.channel }}"
+        installPlanApproval: Automatic
+        name: "{{ cclm_operator.package }}"
+        source: "{{ cclm_operator_source }}"
+        sourceNamespace: "{{ cclm_operator_source_namespace }}"
+
+- name: Wait for operator CSV — {{ cclm_cluster_name ~ '/' ~ cclm_operator.package }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: "{{ cclm_operator.namespace }}"
+    label_selectors:
+      - "operators.coreos.com/{{ cclm_operator.package }}.{{ cclm_operator.namespace }}"
+  register: cclm_operator_csv
+  retries: "{{ cclm_operator_csv_wait_retries }}"
+  delay: "{{ cclm_operator_csv_wait_delay }}"
+  until:
+    - cclm_operator_csv.resources is defined
+    - cclm_operator_csv.resources | length > 0
+    - cclm_operator_csv.resources[0].status.phase == "Succeeded"

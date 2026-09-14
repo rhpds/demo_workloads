@@ -1,0 +1,6 @@
+---
+cclm_seed_vm_name: cclm-demo-vm
+cclm_seed_vm_cpu_cores: 1
+cclm_seed_vm_memory: 2Gi
+cclm_seed_vm_disk_size: 10Gi
+cclm_seed_vm_run: true

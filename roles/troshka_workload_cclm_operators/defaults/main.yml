@@ -1,0 +1,51 @@
+---
+# Operator channels for OCP 4.22 nested CCLM lab.
+cclm_operator_source: redhat-operators
+cclm_operator_source_namespace: openshift-marketplace
+
+cclm_operators:
+  - package: kubevirt-hyperconverged
+    channel: stable
+    namespace: openshift-cnv
+    operatorgroup: cnv-operators
+    target_namespaces:
+      - openshift-cnv
+  - package: mtv-operator
+    channel: release-v2.12
+    namespace: openshift-mtv
+    operatorgroup: mtv-operators
+    target_namespaces:
+      - openshift-mtv
+  - package: odf-operator
+    channel: stable-4.22
+    namespace: openshift-storage
+    operatorgroup: odf-operators
+    target_namespaces:
+      - openshift-storage
+  - package: submariner
+    channel: stable-0.24
+    namespace: submariner-operator
+    operatorgroup: submariner-operators
+    target_namespaces:
+      - submariner-operator
+  - package: kubernetes-nmstate-operator
+    channel: stable
+    namespace: openshift-nmstate
+    operatorgroup: nmstate-operators
+    target_namespaces:
+      - openshift-nmstate
+  - package: openshift-cert-manager-operator
+    channel: stable-v1
+    namespace: openshift-cert-manager-operator
+    operatorgroup: cert-manager-operators
+    target_namespaces:
+      - openshift-cert-manager-operator
+  - package: metallb-operator
+    channel: stable
+    namespace: metallb-system
+    operatorgroup: metallb-operators
+    target_namespaces:
+      - metallb-system
+
+cclm_operator_csv_wait_retries: 90
+cclm_operator_csv_wait_delay: 20

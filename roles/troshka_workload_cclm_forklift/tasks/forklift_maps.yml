@@ -1,0 +1,80 @@
+---
+- name: Set source cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+  vars:
+    cclm_cluster_name: "{{ cclm_source_cluster }}"
+
+- name: Register destination provider on source cluster
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      metadata:
+        name: "{{ cclm_dest_cluster }}"
+        namespace: "{{ cclm_forklift_namespace }}"
+      spec:
+        type: "{{ cclm_forklift_provider_type }}"
+        url: "{{ clusters[cclm_dest_cluster].api_url }}"
+        secret:
+          name: "{{ cclm_dest_cluster }}-forklift"
+          namespace: "{{ cclm_forklift_namespace }}"
+        settings:
+          token: "{{ clusters[cclm_dest_cluster].api_token }}"
+
+- name: Create pod-to-pod NetworkMap on source cluster
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: NetworkMap
+      metadata:
+        name: "{{ cclm_forklift_network_map_name }}"
+        namespace: "{{ cclm_forklift_namespace }}"
+      spec:
+        provider:
+          destination:
+            name: "{{ cclm_dest_cluster }}"
+            namespace: "{{ cclm_forklift_namespace }}"
+          source:
+            name: host
+            namespace: "{{ cclm_forklift_namespace }}"
+        map:
+          - source:
+              name: pod
+            destination:
+              type: pod
+
+- name: Create StorageMap to external Ceph RBD on source cluster
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: StorageMap
+      metadata:
+        name: "{{ cclm_forklift_storage_map_name }}"
+        namespace: "{{ cclm_forklift_namespace }}"
+      spec:
+        provider:
+          destination:
+            name: "{{ cclm_dest_cluster }}"
+            namespace: "{{ cclm_forklift_namespace }}"
+          source:
+            name: host
+            namespace: "{{ cclm_forklift_namespace }}"
+        map:
+          - source:
+              name: "{{ cclm_odf_storage_class }}"
+            destination:
+              name: "{{ cclm_odf_storage_class }}"

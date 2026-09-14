@@ -1,0 +1,11 @@
+---
+- name: Create workload namespaces on each cluster
+  ansible.builtin.include_tasks: namespaces.yml
+  loop: "{{ cclm_target_clusters }}"
+  loop_control:
+    loop_var: cclm_cluster_name
+    label: "{{ cclm_cluster_name }}"
+
+- name: Seed demo VM on source cluster
+  ansible.builtin.include_tasks: seed_vm.yml
+  when: cclm_seed_vm_run | bool

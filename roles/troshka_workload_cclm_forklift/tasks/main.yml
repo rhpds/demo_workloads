@@ -1,0 +1,27 @@
+---
+- name: Enable Forklift OCP live migration on each cluster
+  ansible.builtin.include_tasks: configure_forklift_controller.yml
+  loop: "{{ cclm_target_clusters }}"
+  loop_control:
+    loop_var: cclm_cluster_name
+    label: "{{ cclm_cluster_name }}"
+
+- name: Deploy Submariner broker on source cluster
+  ansible.builtin.include_tasks: submariner_broker.yml
+  vars:
+    cclm_cluster_name: "{{ cclm_source_cluster }}"
+
+- name: Join Submariner on source (broker) cluster
+  ansible.builtin.include_tasks: submariner_join.yml
+  vars:
+    cclm_cluster_name: "{{ cclm_source_cluster }}"
+    cclm_submariner_broker_cluster: true
+
+- name: Join Submariner on destination cluster
+  ansible.builtin.include_tasks: submariner_join.yml
+  vars:
+    cclm_cluster_name: "{{ cclm_dest_cluster }}"
+    cclm_submariner_broker_cluster: false
+
+- name: Register cross-cluster Forklift providers and maps
+  ansible.builtin.include_tasks: forklift_maps.yml

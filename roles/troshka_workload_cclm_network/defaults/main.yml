@@ -1,0 +1,7 @@
+---
+cclm_lm_network_name: lm-network
+cclm_lm_network_namespace: default
+cclm_metallb_pool_name: virt-sync-lb
+
+cclm_storage_cluster_name: ocs-external-storagecluster
+cclm_storage_cluster_mode: external

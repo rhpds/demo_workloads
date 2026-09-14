@@ -1,0 +1,10 @@
+= troshka_workload_cclm_forklift
+
+Enables MTV/Forklift cross-cluster live migration:
+
+* `ForkliftController.feature_ocp_live_migration`
+* Submariner broker (source) + join (both clusters)
+* Forklift provider, NetworkMap (pod→pod), StorageMap (external Ceph SC)
+
+Requires operators + network roles and a populated `clusters` dict with both
+`source` and `destination` API endpoints.

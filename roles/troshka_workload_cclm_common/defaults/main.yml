@@ -1,0 +1,39 @@
+---
+# Shared CCLM lab defaults (nested OCP on Troshka KubeVirt).
+cclm_source_cluster: source
+cclm_dest_cluster: destination
+cclm_target_clusters:
+  - "{{ cclm_source_cluster }}"
+  - "{{ cclm_dest_cluster }}"
+
+cclm_migration_cidr: 172.16.100.0/24
+cclm_migration_prefix_length: 24
+# Second virtio NIC on nested RHCOS nodes (verify on first live deploy).
+cclm_migration_parent_iface: enp2s0
+
+cclm_metallb_pools:
+  source: 172.16.100.100-172.16.100.109
+  destination: 172.16.100.200-172.16.100.209
+
+cclm_whereabouts_ranges:
+  source: 172.16.100.224/28
+  destination: 172.16.100.240/28
+
+# Static migration NIC IPs — match ocp-cclm.yaml (Troshka template).
+cclm_migration_node_ips:
+  source:
+    source-cp-0: 172.16.100.10
+    source-worker-0: 172.16.100.20
+    source-worker-1: 172.16.100.21
+  destination:
+    dest-cp-0: 172.16.100.110
+
+cclm_vm_namespaces:
+  source: source-cluster
+  destination: destination-cluster
+
+# Pre-provisioned external Ceph — secret supplied via catalog/workload extra_vars.
+cclm_ceph_secret_name: rook-ceph-external-cluster-details
+cclm_ceph_secret_namespace: openshift-storage
+
+cclm_odf_storage_class: ocs-external-storagecluster-ceph-rbd

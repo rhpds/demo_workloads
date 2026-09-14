@@ -1,0 +1,10 @@
+= troshka_workload_cclm_network
+
+Configures per-cluster migration networking for decentralized CNV live migration:
+
+* NNCP static IPs on the migration virtio NIC (`cclm_migration_node_ips`)
+* `lm-network` macvlan NAD with whereabouts IPAM
+* MetalLB pool for virt sync controller services
+* External Ceph `StorageCluster` (expects pre-created secret in openshift-storage)
+
+Verify `cclm_migration_parent_iface` on first live deploy (default `enp2s0`).

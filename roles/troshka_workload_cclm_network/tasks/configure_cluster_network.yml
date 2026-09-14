@@ -1,0 +1,76 @@
+---
+- name: Set cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Apply migration NNCPs on {{ cclm_cluster_name }}
+  ansible.builtin.include_tasks: migration_nncp.yml
+  loop: "{{ cclm_migration_node_ips[cclm_cluster_name] | default({}) | dict2items }}"
+  loop_control:
+    loop_var: cclm_node
+    label: "{{ cclm_node.key }}"
+
+- name: Create lm-network NAD on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: k8s.cni.cncf.io/v1
+      kind: NetworkAttachmentDefinition
+      metadata:
+        name: "{{ cclm_lm_network_name }}"
+        namespace: "{{ cclm_lm_network_namespace }}"
+      spec:
+        config: |
+          {
+            "cniVersion": "0.3.1",
+            "name": "{{ cclm_lm_network_name }}",
+            "type": "macvlan",
+            "master": "{{ cclm_migration_parent_iface }}",
+            "mode": "bridge",
+            "ipam": {
+              "type": "whereabouts",
+              "range": "{{ cclm_whereabouts_ranges[cclm_cluster_name] }}"
+            }
+          }
+
+- name: Create MetalLB address pool on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: "{{ cclm_metallb_pool_name }}"
+        namespace: metallb-system
+      spec:
+        addresses:
+          - "{{ cclm_metallb_pools[cclm_cluster_name] }}"
+
+- name: Advertise MetalLB pool on migration interface on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: "{{ cclm_metallb_pool_name }}"
+        namespace: metallb-system
+      spec:
+        ipAddressPools:
+          - "{{ cclm_metallb_pool_name }}"
+        interfaces:
+          - "{{ cclm_migration_parent_iface }}"
+
+- name: Connect external Ceph storage on {{ cclm_cluster_name }}
+  ansible.builtin.include_tasks: external_storagecluster.yml
+  when: cclm_ceph_secret_name | length > 0

@@ -1,0 +1,36 @@
+---
+- name: Set cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Patch ForkliftController on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: patched
+    api_version: forklift.konveyor.io/v1beta1
+    kind: ForkliftController
+    name: "{{ cclm_forklift_controller_name }}"
+    namespace: "{{ cclm_forklift_namespace }}"
+    definition:
+      spec:
+        feature_ocp_live_migration: "true"
+
+- name: Wait for ForkliftController on {{ cclm_cluster_name }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: forklift.konveyor.io/v1beta1
+    kind: ForkliftController
+    name: "{{ cclm_forklift_controller_name }}"
+    namespace: "{{ cclm_forklift_namespace }}"
+  register: cclm_forklift_controller
+  retries: "{{ cclm_forklift_ready_retries }}"
+  delay: "{{ cclm_forklift_ready_delay }}"
+  until:
+    - cclm_forklift_controller.resources is defined
+    - cclm_forklift_controller.resources | length > 0
+    - cclm_forklift_controller.resources[0].status | default({}) | length > 0

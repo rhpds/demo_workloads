@@ -1,0 +1,53 @@
+---
+- name: Ensure openshift-storage namespace exists
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: openshift-storage
+
+- name: Create external StorageCluster on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: ocs.openshift.io/v1
+      kind: StorageCluster
+      metadata:
+        name: "{{ cclm_storage_cluster_name }}"
+        namespace: openshift-storage
+      spec:
+        externalStorage:
+          enable: true
+        secretNames:
+          user: "{{ cclm_ceph_secret_name }}"
+          config: "{{ cclm_ceph_secret_name }}"
+        storageDeviceSets: []
+        manageNodes: false
+        resources:
+          requests:
+            storage: 10Gi
+
+- name: Wait for external StorageCluster to be ready on {{ cclm_cluster_name }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: ocs.openshift.io/v1
+    kind: StorageCluster
+    name: "{{ cclm_storage_cluster_name }}"
+    namespace: openshift-storage
+  register: cclm_storage_cluster
+  retries: 60
+  delay: 20
+  until:
+    - cclm_storage_cluster.resources is defined
+    - cclm_storage_cluster.resources | length > 0
+    - cclm_storage_cluster.resources[0].status.phase | default('') == "Ready"

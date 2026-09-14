@@ -1,0 +1,12 @@
+---
+- name: Set cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Install operator subscriptions on {{ cclm_cluster_name }}
+  ansible.builtin.include_tasks: install_one_operator.yml
+  loop: "{{ cclm_operators }}"
+  loop_control:
+    loop_var: cclm_operator
+    label: "{{ cclm_operator.package }}"

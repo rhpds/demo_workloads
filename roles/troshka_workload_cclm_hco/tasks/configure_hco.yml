@@ -1,0 +1,38 @@
+---
+- name: Set cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Patch HyperConverged for decentralized live migration on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: patched
+    api_version: hco.kubevirt.io/v1beta1
+    kind: HyperConverged
+    name: "{{ cclm_hco_name }}"
+    namespace: "{{ cclm_hco_namespace }}"
+    definition:
+      spec:
+        featureGates: "{{ cclm_hco_feature_gates }}"
+        liveMigrationConfig: "{{ cclm_hco_live_migration_config }}"
+
+- name: Wait for KubeVirt operator to report available on {{ cclm_cluster_name }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: "{{ cclm_hco_namespace }}"
+    label_selectors:
+      - "operators.coreos.com/kubevirt-hyperconverged.{{ cclm_hco_namespace }}"
+  register: cclm_hco_csv
+  retries: "{{ cclm_hco_ready_retries }}"
+  delay: "{{ cclm_hco_ready_delay }}"
+  until:
+    - cclm_hco_csv.resources is defined
+    - cclm_hco_csv.resources | length > 0
+    - cclm_hco_csv.resources[0].status.phase == "Succeeded"

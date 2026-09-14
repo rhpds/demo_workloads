@@ -1,0 +1,72 @@
+---
+- name: Set source cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+  vars:
+    cclm_cluster_name: "{{ cclm_source_cluster }}"
+
+- name: Create demo DataVolume for {{ cclm_seed_vm_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: cdi.kubevirt.io/v1beta1
+      kind: DataVolume
+      metadata:
+        name: "{{ cclm_seed_vm_name }}-root"
+        namespace: "{{ cclm_vm_namespaces[cclm_source_cluster] }}"
+      spec:
+        source:
+          registry:
+            url: "docker://registry.redhat.io/ubi9/ubi-minimal:latest"
+        storage:
+          resources:
+            requests:
+              storage: "{{ cclm_seed_vm_disk_size }}"
+          storageClassName: "{{ cclm_odf_storage_class }}"
+
+- name: Create demo VirtualMachine {{ cclm_seed_vm_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: kubevirt.io/v1
+      kind: VirtualMachine
+      metadata:
+        name: "{{ cclm_seed_vm_name }}"
+        namespace: "{{ cclm_vm_namespaces[cclm_source_cluster] }}"
+        labels:
+          app: cclm-demo
+      spec:
+        running: true
+        template:
+          metadata:
+            labels:
+              kubevirt.io/vm: "{{ cclm_seed_vm_name }}"
+          spec:
+            domain:
+              cpu:
+                cores: "{{ cclm_seed_vm_cpu_cores }}"
+              resources:
+                requests:
+                  memory: "{{ cclm_seed_vm_memory }}"
+              devices:
+                disks:
+                  - name: rootdisk
+                    disk:
+                      bus: virtio
+                interfaces:
+                  - name: default
+                    masquerade: {}
+            networks:
+              - name: default
+                pod: {}
+            volumes:
+              - name: rootdisk
+                dataVolume:
+                  name: "{{ cclm_seed_vm_name }}-root"

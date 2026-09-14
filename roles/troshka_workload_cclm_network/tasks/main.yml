@@ -1,0 +1,7 @@
+---
+- name: Configure migration networking on each cluster
+  ansible.builtin.include_tasks: configure_cluster_network.yml
+  loop: "{{ cclm_target_clusters }}"
+  loop_control:
+    loop_var: cclm_cluster_name
+    label: "{{ cclm_cluster_name }}"

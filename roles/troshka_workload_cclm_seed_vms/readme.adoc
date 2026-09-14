@@ -1,0 +1,6 @@
+= troshka_workload_cclm_seed_vms
+
+Creates `source-cluster` / `destination-cluster` namespaces and optionally imports a
+small demo VM into the source namespace for MTV live-migration exercises.
+
+Set `cclm_seed_vm_run: false` to skip VM creation (student imports via MTV UI).
