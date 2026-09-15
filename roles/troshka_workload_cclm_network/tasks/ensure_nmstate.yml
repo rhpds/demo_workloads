@@ -1,0 +1,47 @@
+---
+# kubernetes-nmstate-operator CSV alone does not register NNCP CRDs or deploy
+# handlers — the cluster NMState singleton must exist first (OCP 4.22+).
+- name: Ensure NMState singleton on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: nmstate.io/v1
+      kind: NMState
+      metadata:
+        name: "{{ cclm_nmstate_name }}"
+      spec: {}
+
+- name: Wait for NNCP CRD on {{ cclm_cluster_name }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: nodenetworkconfigurationpolicies.nmstate.io
+  register: cclm_nncp_crd
+  retries: "{{ cclm_nmstate_ready_retries }}"
+  delay: "{{ cclm_nmstate_ready_delay }}"
+  until:
+    - cclm_nncp_crd.resources is defined
+    - cclm_nncp_crd.resources | length > 0
+
+- name: Wait for nmstate-handler DaemonSet on {{ cclm_cluster_name }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: apps/v1
+    kind: DaemonSet
+    namespace: "{{ cclm_nmstate_namespace }}"
+    name: "{{ cclm_nmstate_handler_daemonset }}"
+  register: cclm_nmstate_handler
+  retries: "{{ cclm_nmstate_ready_retries }}"
+  delay: "{{ cclm_nmstate_ready_delay }}"
+  until:
+    - cclm_nmstate_handler.resources is defined
+    - cclm_nmstate_handler.resources | length > 0
+    - (cclm_nmstate_handler.resources[0].status.numberReady | default(0) | int) >= 1

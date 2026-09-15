@@ -4,6 +4,9 @@
     name: troshka_workload_cclm_common
     tasks_from: set_cluster_context.yml
 
+- name: Ensure kubernetes-nmstate is active on {{ cclm_cluster_name }}
+  ansible.builtin.include_tasks: ensure_nmstate.yml
+
 - name: Apply migration NNCPs on {{ cclm_cluster_name }}
   ansible.builtin.include_tasks: migration_nncp.yml
   loop: "{{ cclm_migration_node_ips[cclm_cluster_name] | default({}) | dict2items }}"

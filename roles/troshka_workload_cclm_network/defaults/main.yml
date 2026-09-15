@@ -1,4 +1,10 @@
 ---
+cclm_nmstate_name: nmstate
+cclm_nmstate_namespace: openshift-nmstate
+cclm_nmstate_handler_daemonset: nmstate-handler
+cclm_nmstate_ready_retries: 30
+cclm_nmstate_ready_delay: 10
+
 cclm_lm_network_name: lm-network
 cclm_lm_network_namespace: default
 cclm_metallb_pool_name: virt-sync-lb
