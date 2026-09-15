@@ -40,12 +40,12 @@ cclm_operators:
     operatorgroup: cert-manager-operators
     target_namespaces:
       - openshift-cert-manager-operator
+  # MetalLB CSV only supports AllNamespaces — omit target_namespaces (empty spec).
   - package: metallb-operator
     channel: stable
     namespace: metallb-system
     operatorgroup: metallb-operators
-    target_namespaces:
-      - metallb-system
+    target_namespaces: []
 
 cclm_operator_csv_wait_retries: 90
 cclm_operator_csv_wait_delay: 20

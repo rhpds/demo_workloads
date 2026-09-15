@@ -17,14 +17,21 @@
     api_key: "{{ cclm_k8s_token }}"
     validate_certs: "{{ cclm_k8s_validate_certs }}"
     state: present
-    definition:
+    definition: "{{ _cclm_operatorgroup_def }}"
+  vars:
+    _cclm_operatorgroup_def:
       apiVersion: operators.coreos.com/v1
       kind: OperatorGroup
       metadata:
         name: "{{ cclm_operator.operatorgroup }}"
         namespace: "{{ cclm_operator.namespace }}"
-      spec:
-        targetNamespaces: "{{ cclm_operator.target_namespaces }}"
+      spec: "{{ _cclm_operatorgroup_spec }}"
+    _cclm_operatorgroup_spec: >-
+      {{
+        {}
+        if not (cclm_operator.target_namespaces | default([]) | length > 0)
+        else {'targetNamespaces': cclm_operator.target_namespaces}
+      }}
 
 - name: Subscribe operator — {{ cclm_cluster_name ~ '/' ~ cclm_operator.package }}
   kubernetes.core.k8s:
