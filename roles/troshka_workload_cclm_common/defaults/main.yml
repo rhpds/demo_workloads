@@ -32,8 +32,10 @@ cclm_vm_namespaces:
   source: source-cluster
   destination: destination-cluster
 
-# Pre-provisioned external Ceph — secret supplied via catalog/workload extra_vars.
+# Troshka project Ceph → nested ODF external attach.
 cclm_ceph_secret_name: rook-ceph-external-cluster-details
 cclm_ceph_secret_namespace: openshift-storage
+cclm_project_ceph_mount_path: /workdir/project-ceph
+cclm_ceph_export_wait_timeout: 600
 
 cclm_odf_storage_class: ocs-external-storagecluster-ceph-rbd

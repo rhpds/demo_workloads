@@ -1,4 +1,7 @@
 ---
+- name: Copy Troshka project Ceph credentials into nested openshift-storage
+  ansible.builtin.include_tasks: copy_external_ceph_secret.yml
+
 - name: Ensure openshift-storage namespace exists
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
@@ -26,14 +29,7 @@
       spec:
         externalStorage:
           enable: true
-        secretNames:
-          user: "{{ cclm_ceph_secret_name }}"
-          config: "{{ cclm_ceph_secret_name }}"
         storageDeviceSets: []
-        manageNodes: false
-        resources:
-          requests:
-            storage: 10Gi
 
 - name: Wait for external StorageCluster to be ready on {{ cclm_cluster_name }}
   kubernetes.core.k8s_info:
