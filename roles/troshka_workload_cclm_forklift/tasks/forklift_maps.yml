@@ -6,6 +6,27 @@
   vars:
     cclm_cluster_name: "{{ cclm_source_cluster }}"
 
+- name: Create Forklift provider secret for destination on source cluster
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ cclm_dest_cluster }}-forklift"
+        namespace: "{{ cclm_forklift_namespace }}"
+        labels:
+          createdForResourceType: providers
+          createdForResource: "{{ cclm_dest_cluster }}"
+      type: Opaque
+      stringData:
+        url: "{{ clusters[cclm_dest_cluster].api_url }}"
+        token: "{{ clusters[cclm_dest_cluster].api_token }}"
+        insecure: "true"
+
 - name: Register destination provider on source cluster
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
@@ -24,8 +45,6 @@
         secret:
           name: "{{ cclm_dest_cluster }}-forklift"
           namespace: "{{ cclm_forklift_namespace }}"
-        settings:
-          token: "{{ clusters[cclm_dest_cluster].api_token }}"
 
 - name: Create pod-to-pod NetworkMap on source cluster
   kubernetes.core.k8s:
@@ -49,11 +68,11 @@
             namespace: "{{ cclm_forklift_namespace }}"
         map:
           - source:
-              name: pod
+              type: pod
             destination:
               type: pod
 
-- name: Create StorageMap to external Ceph RBD on source cluster
+- name: Create StorageMap (source ODF RBD → dest storage class) on source cluster
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
     api_key: "{{ cclm_k8s_token }}"
@@ -77,4 +96,4 @@
           - source:
               name: "{{ cclm_odf_storage_class }}"
             destination:
-              name: "{{ cclm_odf_storage_class }}"
+              storageClass: "{{ cclm_dest_storage_class }}"

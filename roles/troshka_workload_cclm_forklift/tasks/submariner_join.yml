@@ -19,6 +19,17 @@
       }}
   when: clusters is defined
 
+# Prefer an explicit CA when provided; otherwise join with brokerK8sInsecure
+# (RHDP CCLM reference used insecure=true on the shared L2 lab).
+- name: Resolve Submariner broker CA for {{ cclm_cluster_name }}
+  ansible.builtin.set_fact:
+    cclm_submariner_broker_ca_effective: "{{ cclm_submariner_broker_ca | default('') }}"
+    cclm_submariner_broker_insecure: >-
+      {{
+        (cclm_submariner_broker_ca | default('') | length == 0)
+        | bool
+      }}
+
 # CRD requires clusterID/clusterCIDR/serviceCIDR/ceIPSecDebug/namespace/brokerK8sRemoteNamespace
 # (clusterId/clusterCidr variants are rejected with 422).
 - name: Join Submariner on {{ cclm_cluster_name }}
@@ -37,7 +48,8 @@
         broker: k8s
         brokerK8sApiServer: "{{ cclm_submariner_broker_api | default(cclm_k8s_host) | regex_replace('^https?://', '') }}"
         brokerK8sApiServerToken: "{{ cclm_submariner_broker_token | default(cclm_k8s_token) }}"
-        brokerK8sCA: "{{ cclm_submariner_broker_ca | default('') }}"
+        brokerK8sCA: "{{ cclm_submariner_broker_ca_effective }}"
+        brokerK8sInsecure: "{{ cclm_submariner_broker_insecure }}"
         brokerK8sRemoteNamespace: "{{ cclm_submariner_broker_remote_namespace | default('submariner-k8s-broker') }}"
         cableDriver: wireguard
         ceIPSecDebug: false
@@ -48,5 +60,5 @@
         natEnabled: true
         debug: false
         globalCIDR: ""
-        loadBalancerEnabled: false
+        loadBalancerEnabled: true
         serviceDiscoveryEnabled: true

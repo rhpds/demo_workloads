@@ -4,20 +4,24 @@
     name: troshka_workload_cclm_common
     tasks_from: set_cluster_context.yml
 
-- name: Patch HyperConverged for decentralized live migration on {{ cclm_cluster_name }}
+# Create-if-missing: CNV CSV does not always stamp HyperConverged; patch alone
+# waits forever when the CR is absent (seen ~22m on Troshka PoC).
+- name: Ensure HyperConverged exists on {{ cclm_cluster_name }}
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
     api_key: "{{ cclm_k8s_token }}"
     validate_certs: "{{ cclm_k8s_validate_certs }}"
-    state: patched
-    api_version: hco.kubevirt.io/v1beta1
-    kind: HyperConverged
-    name: "{{ cclm_hco_name }}"
-    namespace: "{{ cclm_hco_namespace }}"
+    state: present
     definition:
+      apiVersion: hco.kubevirt.io/v1beta1
+      kind: HyperConverged
+      metadata:
+        name: "{{ cclm_hco_name }}"
+        namespace: "{{ cclm_hco_namespace }}"
       spec:
         featureGates: "{{ cclm_hco_feature_gates }}"
         liveMigrationConfig: "{{ cclm_hco_live_migration_config }}"
+        evictionStrategy: LiveMigrate
 
 - name: Wait for KubeVirt operator to report available on {{ cclm_cluster_name }}
   kubernetes.core.k8s_info:

@@ -13,5 +13,8 @@ cclm_submariner_service_cidr: "172.30.0.0/16"
 cclm_forklift_provider_type: ocp
 cclm_forklift_ready_retries: 60
 cclm_forklift_ready_delay: 20
-# Used by StorageMap (external ODF RBD on source)
+# Source StorageMap entry (external ODF RBD)
 cclm_odf_storage_class: ocs-external-storagecluster-ceph-rbd
+# Destination SC — prefer shared external RBD once dest ODF is Ready.
+# Live PoC used kubevirt-hostpath until dest ODF caught up; override via extra_vars.
+cclm_dest_storage_class: "{{ cclm_odf_storage_class }}"

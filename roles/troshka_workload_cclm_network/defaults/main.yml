@@ -5,9 +5,14 @@ cclm_nmstate_handler_daemonset: nmstate-handler
 cclm_nmstate_ready_retries: 30
 cclm_nmstate_ready_delay: 10
 
+# NAD lives in openshift-cnv (matches HCO liveMigrationConfig.network / RHDP CCLM).
 cclm_lm_network_name: lm-network
-cclm_lm_network_namespace: default
+cclm_lm_network_namespace: openshift-cnv
+cclm_metallb_name: metallb
+cclm_metallb_namespace: metallb-system
 cclm_metallb_pool_name: virt-sync-lb
+cclm_metallb_ready_retries: 30
+cclm_metallb_ready_delay: 10
 
 cclm_storage_cluster_name: ocs-external-storagecluster
 cclm_storage_cluster_mode: external

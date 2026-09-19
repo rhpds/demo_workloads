@@ -1,12 +1,12 @@
 ---
 # Ordered CCLM post-install chain for Troshka ocp-cclm projects.
-# Run via openshift-workloads (AgnosticD) or ansible-playbook with clusters extra-var.
+# Network (lm-network NAD) before HCO so liveMigrationConfig.network resolves.
 - name: CCLM post-install workloads
   hosts: localhost
   gather_facts: false
   roles:
     - role: troshka_workload_cclm_operators
-    - role: troshka_workload_cclm_hco
     - role: troshka_workload_cclm_network
+    - role: troshka_workload_cclm_hco
     - role: troshka_workload_cclm_forklift
     - role: troshka_workload_cclm_seed_vms

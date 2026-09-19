@@ -4,3 +4,6 @@ cclm_seed_vm_cpu_cores: 1
 cclm_seed_vm_memory: 2Gi
 cclm_seed_vm_disk_size: 10Gi
 cclm_seed_vm_run: true
+# quay.io containerDisk — no registry.redhat.io pull secret needed
+cclm_seed_vm_image: quay.io/containerdisks/fedora:latest
+cclm_odf_storage_class: ocs-external-storagecluster-ceph-rbd

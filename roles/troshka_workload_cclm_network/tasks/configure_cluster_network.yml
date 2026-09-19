@@ -36,9 +36,13 @@
             "mode": "bridge",
             "ipam": {
               "type": "whereabouts",
-              "range": "{{ cclm_whereabouts_ranges[cclm_cluster_name] }}"
+              "range": "{{ cclm_whereabouts_ranges[cclm_cluster_name] }}",
+              "routes": [{"dst": "{{ cclm_migration_cidr }}"}]
             }
           }
+
+- name: Ensure MetalLB is active on {{ cclm_cluster_name }}
+  ansible.builtin.include_tasks: ensure_metallb.yml
 
 - name: Create MetalLB address pool on {{ cclm_cluster_name }}
   kubernetes.core.k8s:

@@ -6,28 +6,7 @@
   vars:
     cclm_cluster_name: "{{ cclm_source_cluster }}"
 
-- name: Create demo DataVolume for {{ cclm_seed_vm_name }}
-  kubernetes.core.k8s:
-    host: "{{ cclm_k8s_host }}"
-    api_key: "{{ cclm_k8s_token }}"
-    validate_certs: "{{ cclm_k8s_validate_certs }}"
-    state: present
-    definition:
-      apiVersion: cdi.kubevirt.io/v1beta1
-      kind: DataVolume
-      metadata:
-        name: "{{ cclm_seed_vm_name }}-root"
-        namespace: "{{ cclm_vm_namespaces[cclm_source_cluster] }}"
-      spec:
-        source:
-          registry:
-            url: "docker://registry.redhat.io/ubi9/ubi-minimal:latest"
-        storage:
-          resources:
-            requests:
-              storage: "{{ cclm_seed_vm_disk_size }}"
-          storageClassName: "{{ cclm_odf_storage_class }}"
-
+# Public containerDisk — avoids registry.redhat.io pull-secret requirements.
 - name: Create demo VirtualMachine {{ cclm_seed_vm_name }}
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
@@ -43,7 +22,7 @@
         labels:
           app: cclm-demo
       spec:
-        running: true
+        running: "{{ cclm_seed_vm_run | bool }}"
         template:
           metadata:
             labels:
@@ -68,5 +47,5 @@
                 pod: {}
             volumes:
               - name: rootdisk
-                dataVolume:
-                  name: "{{ cclm_seed_vm_name }}-root"
+                containerDisk:
+                  image: "{{ cclm_seed_vm_image }}"

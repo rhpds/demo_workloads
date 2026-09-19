@@ -8,7 +8,9 @@ cclm_target_clusters:
 
 cclm_migration_cidr: 172.16.100.0/24
 cclm_migration_prefix_length: 24
-# Second virtio NIC on nested RHCOS nodes (verify on first live deploy).
+# Second virtio NIC on nested RHCOS (Troshka ocp-cclm). Live PoC NNCPs/
+# MetalLB L2Adv use enp2s0. RHDP bare-metal reference used enp3s0 — override
+# via extra_vars if the guest iface differs.
 cclm_migration_parent_iface: enp2s0
 
 cclm_metallb_pools:

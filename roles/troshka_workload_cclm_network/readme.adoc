@@ -9,4 +9,7 @@ Configures per-cluster migration networking for decentralized CNV live migration
 * Copies Troshka `troshka-ceph-external` export into nested `rook-ceph-external-cluster-details`
 * External Ceph `StorageCluster` in openshift-storage
 
-Verify `cclm_migration_parent_iface` on first live deploy (default `enp2s0`).
+Verify `cclm_migration_parent_iface` on first live deploy (default `enp2s0` on
+Troshka nested RHCOS; RHDP bare-metal CCLM reference used `enp3s0`).
+NAD is created in `openshift-cnv` to match HCO `liveMigrationConfig.network`.
+MetalLB singleton CR is applied before IPAddressPool / L2Advertisement.

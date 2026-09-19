@@ -4,19 +4,24 @@
     name: troshka_workload_cclm_common
     tasks_from: set_cluster_context.yml
 
-- name: Patch ForkliftController on {{ cclm_cluster_name }}
+# Create-if-missing: MTV operator does not always create ForkliftController.
+- name: Ensure ForkliftController exists on {{ cclm_cluster_name }}
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
     api_key: "{{ cclm_k8s_token }}"
     validate_certs: "{{ cclm_k8s_validate_certs }}"
-    state: patched
-    api_version: forklift.konveyor.io/v1beta1
-    kind: ForkliftController
-    name: "{{ cclm_forklift_controller_name }}"
-    namespace: "{{ cclm_forklift_namespace }}"
+    state: present
     definition:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: ForkliftController
+      metadata:
+        name: "{{ cclm_forklift_controller_name }}"
+        namespace: "{{ cclm_forklift_namespace }}"
       spec:
         feature_ocp_live_migration: "true"
+        feature_ui_plugin: "true"
+        feature_validation: "true"
+        feature_volume_populator: "true"
 
 - name: Wait for ForkliftController on {{ cclm_cluster_name }}
   kubernetes.core.k8s_info:
