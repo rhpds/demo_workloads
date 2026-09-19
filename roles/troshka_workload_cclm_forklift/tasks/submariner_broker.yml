@@ -4,6 +4,18 @@
     name: troshka_workload_cclm_common
     tasks_from: set_cluster_context.yml
 
+- name: Ensure Submariner broker namespace exists on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cclm_submariner_broker_remote_namespace | default('submariner-k8s-broker') }}"
+
 - name: Create Submariner broker on {{ cclm_cluster_name }}
   kubernetes.core.k8s:
     host: "{{ cclm_k8s_host }}"
@@ -15,4 +27,9 @@
       kind: Broker
       metadata:
         name: "{{ cclm_submariner_broker_name }}"
-        namespace: "{{ cclm_submariner_broker_namespace }}"
+        namespace: "{{ cclm_submariner_broker_remote_namespace | default('submariner-k8s-broker') }}"
+      spec:
+        components:
+          - service-discovery
+          - connectivity
+        globalnetEnabled: false

@@ -6,7 +6,12 @@ cclm_forklift_network_map_name: cclm-network-map
 
 cclm_submariner_broker_name: submariner-broker
 cclm_submariner_broker_namespace: submariner-operator
+cclm_submariner_broker_remote_namespace: submariner-k8s-broker
+cclm_submariner_cluster_cidr: "10.128.0.0/14"
+cclm_submariner_service_cidr: "172.30.0.0/16"
 
 cclm_forklift_provider_type: ocp
 cclm_forklift_ready_retries: 60
 cclm_forklift_ready_delay: 20
+# Used by StorageMap (external ODF RBD on source)
+cclm_odf_storage_class: ocs-external-storagecluster-ceph-rbd
