@@ -19,6 +19,14 @@
         image: "{{ cclm_supplemental_catalog.image }}"
         displayName: "{{ cclm_supplemental_catalog.display_name }}"
         publisher: "{{ cclm_supplemental_catalog.publisher }}"
+        # Match marketplace defaults — plain grpc on the 1.5Gi v4.22 index
+        # fails startup probes on small SNOs (TRANSIENT_FAILURE / CrashLoop).
+        grpcPodConfig:
+          extractContent:
+            cacheDir: /tmp/cache
+            catalogDir: /configs
+          memoryTarget: 512Mi
+          securityContextConfig: restricted
         updateStrategy:
           registryPoll:
             interval: 30m
