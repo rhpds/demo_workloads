@@ -1,7 +1,19 @@
 ---
-# Operator channels for OCP 4.22 nested CCLM lab.
+# Operator channels for nested CCLM lab.
+# Default source is the cluster's redhat-operators (matches the OCP major).
+# Packages absent from OCP 5.x early indexes pin source to the supplemental
+# v4.22 CatalogSource created by ensure_supplemental_catalog.yml.
 cclm_operator_source: redhat-operators
 cclm_operator_source_namespace: openshift-marketplace
+
+cclm_supplemental_catalog:
+  name: redhat-operators-v4-22
+  image: registry.redhat.io/redhat/redhat-operator-index:v4.22
+  display_name: Red Hat Operators (v4.22)
+  publisher: Red Hat
+
+cclm_supplemental_catalog_ready_retries: 30
+cclm_supplemental_catalog_ready_delay: 10
 
 cclm_operators:
   - package: kubevirt-hyperconverged
@@ -14,6 +26,7 @@ cclm_operators:
     channel: release-v2.12
     namespace: openshift-mtv
     operatorgroup: mtv-operators
+    source: redhat-operators-v4-22
     target_namespaces:
       - openshift-mtv
   - package: odf-operator
@@ -26,12 +39,14 @@ cclm_operators:
     channel: stable-0.24
     namespace: submariner-operator
     operatorgroup: submariner-operators
+    source: redhat-operators-v4-22
     target_namespaces:
       - submariner-operator
   - package: kubernetes-nmstate-operator
     channel: stable
     namespace: openshift-nmstate
     operatorgroup: nmstate-operators
+    source: redhat-operators-v4-22
     target_namespaces:
       - openshift-nmstate
   - package: openshift-cert-manager-operator
@@ -45,6 +60,7 @@ cclm_operators:
     channel: stable
     namespace: metallb-system
     operatorgroup: metallb-operators
+    source: redhat-operators-v4-22
     target_namespaces: []
 
 cclm_operator_csv_wait_retries: 90

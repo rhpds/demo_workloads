@@ -4,6 +4,10 @@
     name: troshka_workload_cclm_common
     tasks_from: set_cluster_context.yml
 
+- name: Ensure supplemental operator catalog on {{ cclm_cluster_name }}
+  ansible.builtin.include_tasks: ensure_supplemental_catalog.yml
+  when: cclm_supplemental_catalog is defined
+
 - name: Install operator subscriptions on {{ cclm_cluster_name }}
   ansible.builtin.include_tasks: install_one_operator.yml
   loop: "{{ cclm_operators }}"

@@ -1,0 +1,43 @@
+---
+# OCP 5.x early catalogs omit MTV / MetalLB / NMState / Submariner. Mirror the
+# v4.22 redhat-operator-index as a second CatalogSource so those subscriptions
+# can resolve. Harmless on 4.22 (duplicate packages; subscriptions pin source).
+- name: Ensure supplemental CatalogSource {{ cclm_supplemental_catalog.name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      metadata:
+        name: "{{ cclm_supplemental_catalog.name }}"
+        namespace: "{{ cclm_operator_source_namespace }}"
+      spec:
+        sourceType: grpc
+        image: "{{ cclm_supplemental_catalog.image }}"
+        displayName: "{{ cclm_supplemental_catalog.display_name }}"
+        publisher: "{{ cclm_supplemental_catalog.publisher }}"
+        updateStrategy:
+          registryPoll:
+            interval: 30m
+
+- name: Wait for supplemental CatalogSource READY
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: CatalogSource
+    name: "{{ cclm_supplemental_catalog.name }}"
+    namespace: "{{ cclm_operator_source_namespace }}"
+  register: cclm_supp_catsrc
+  retries: "{{ cclm_supplemental_catalog_ready_retries }}"
+  delay: "{{ cclm_supplemental_catalog_ready_delay }}"
+  until:
+    - cclm_supp_catsrc.resources is defined
+    - cclm_supp_catsrc.resources | length > 0
+    - >
+      cclm_supp_catsrc.resources[0].status.connectionState.lastObservedState
+      | default('') == 'READY'
