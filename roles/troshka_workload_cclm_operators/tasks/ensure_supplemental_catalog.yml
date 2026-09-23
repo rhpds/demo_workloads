@@ -41,3 +41,24 @@
     - >
       cclm_supp_catsrc.resources[0].status.connectionState.lastObservedState
       | default('') == 'READY'
+
+# Marketplace must republish PackageManifests before subscriptions resolve.
+- name: Wait for mtv-operator PackageManifest from supplemental catalog
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: packages.operators.coreos.com/v1
+    kind: PackageManifest
+    name: mtv-operator
+    namespace: "{{ cclm_operator_source_namespace }}"
+  register: cclm_mtv_pkg
+  retries: "{{ cclm_supplemental_catalog_ready_retries }}"
+  delay: "{{ cclm_supplemental_catalog_ready_delay }}"
+  until:
+    - cclm_mtv_pkg.resources is defined
+    - cclm_mtv_pkg.resources | length > 0
+    - >
+      cclm_mtv_pkg.resources
+      | selectattr('status.catalogSource', 'equalto', cclm_supplemental_catalog.name)
+      | list | length > 0
