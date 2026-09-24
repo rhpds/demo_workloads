@@ -29,6 +29,9 @@
       spec:
         externalStorage:
           enable: true
+        # Dest SNO cannot schedule noobaa-core (CPU/mem). CCLM needs RBD, not MCG.
+        multiCloudGateway:
+          reconcileStrategy: ignore
         storageDeviceSets: []
 
 - name: Wait for external StorageCluster to be ready on {{ cclm_cluster_name }}
