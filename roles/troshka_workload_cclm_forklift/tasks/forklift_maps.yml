@@ -21,11 +21,12 @@
         labels:
           createdForResourceType: providers
           createdForResource: "{{ cclm_dest_cluster }}"
+          createdForProviderType: "{{ cclm_forklift_provider_type }}"
       type: Opaque
       stringData:
         url: "{{ clusters[cclm_dest_cluster].api_url }}"
         token: "{{ clusters[cclm_dest_cluster].api_token }}"
-        insecure: "true"
+        insecureSkipVerify: "true"
 
 - name: Register destination provider on source cluster
   kubernetes.core.k8s:
