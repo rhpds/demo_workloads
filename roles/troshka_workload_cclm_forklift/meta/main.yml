@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: troshka_workload_cclm_forklift
+  author: RHDP
+  description: Forklift, Submariner, and MTV maps for cross-cluster CCLM live migration.
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.16"
+  platforms: []
+  galaxy_tags:
+    - ocp
+    - cclm
+    - forklift
+    - mtv
+dependencies:
+  - role: troshka_workload_cclm_common

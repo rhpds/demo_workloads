@@ -1,0 +1,7 @@
+---
+- name: Configure HyperConverged on each cluster
+  ansible.builtin.include_tasks: configure_hco.yml
+  loop: "{{ cclm_target_clusters }}"
+  loop_control:
+    loop_var: cclm_cluster_name
+    label: "{{ cclm_cluster_name }}"

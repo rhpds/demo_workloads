@@ -1,0 +1,21 @@
+= troshka_workload_cclm_platform_addons
+
+Applies day-2 operand configuration after OLM Subscriptions
+(`troshka_workload_cclm_operators`). Specs are mirrored from Troshka project
+`9aff0579` (Beyond the Basics) source cluster — see `files/golden/`.
+
+== Source cluster (ACM / ACS / AAP)
+
+* Advanced Cluster Management — `MultiClusterHub`
+* Advanced Cluster Security — `Central` + `SecuredCluster`
+* Ansible Automation Platform — `AnsibleAutomationPlatform`
+
+== Every cluster in `cclm_target_clusters` (descheduler)
+
+* `MachineConfig` `99-openshift-machineconfig-{master,worker}-psi-karg` (`psi=1`)
+* Wait for MachineConfigPools `Updated`
+* `KubeDescheduler` with `KubeVirtRelieveAndMigrate`
+
+ACS PVC storage class defaults to `cclm_odf_storage_class` (external Ceph RBD
+for ocp-cclm). The golden cluster used `ocs-storagecluster-ceph-rbd`; override
+`cclm_acs_storage_class` if needed.

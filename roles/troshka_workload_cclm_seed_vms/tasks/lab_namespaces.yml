@@ -1,0 +1,21 @@
+---
+- name: Set cluster API context
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Ensure lab VM namespaces on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ item }}"
+        labels:
+          cclm-role: lab-vm
+          cclm-cluster: "{{ cclm_cluster_name }}"
+  loop: "{{ cclm_seed_vm_namespaces }}"

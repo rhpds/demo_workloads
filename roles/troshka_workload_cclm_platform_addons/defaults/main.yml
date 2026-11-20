@@ -1,0 +1,114 @@
+---
+# Apply platform add-on CRs on the source cluster (nested destination is SNO).
+# Operand specs mirrored from Troshka project 9aff0579 (Beyond the Basics)
+# source cluster — see files/golden/SOURCE.txt.
+cclm_platform_addons_cluster: "{{ cclm_source_cluster }}"
+
+# --- Advanced Cluster Management ---
+cclm_mch_name: multiclusterhub
+cclm_mch_namespace: open-cluster-management
+cclm_mch_availability_config: High
+cclm_mch_local_cluster_name: local-cluster
+cclm_mch_annotations:
+  installer.open-cluster-management.io/resource-adoption-policy: Strict
+# Component overrides mirrored from 9aff0579 MultiClusterHub.
+cclm_mch_components:
+  - name: app-lifecycle
+    enabled: true
+    configOverrides: {}
+  - name: cluster-lifecycle
+    enabled: true
+    configOverrides: {}
+  - name: console
+    enabled: true
+    configOverrides: {}
+  - name: grc
+    enabled: true
+    configOverrides: {}
+  - name: insights
+    enabled: true
+    configOverrides: {}
+  - name: multicluster-engine
+    enabled: true
+    configOverrides: {}
+  - name: multicluster-observability
+    enabled: true
+    configOverrides: {}
+  - name: search
+    enabled: true
+    configOverrides: {}
+  - name: submariner-addon
+    enabled: true
+    configOverrides: {}
+  - name: volsync
+    enabled: true
+    configOverrides: {}
+  - name: cluster-backup
+    enabled: false
+    configOverrides: {}
+  - name: fine-grained-rbac
+    enabled: false
+    configOverrides: {}
+  - name: siteconfig
+    enabled: false
+    configOverrides: {}
+  - name: cnv-mtv-integrations
+    enabled: false
+    configOverrides: {}
+
+cclm_mch_ready_retries: 90
+cclm_mch_ready_delay: 20
+
+# --- Advanced Cluster Security (RHACS) ---
+cclm_acs_namespace: stackrox
+cclm_acs_central_name: stackrox-central-services
+cclm_acs_secured_cluster_name: stackrox-secured-cluster-services
+cclm_acs_cluster_name: beyond-source
+cclm_acs_central_endpoint: central.stackrox.svc:443
+# Gold 9aff0579 used ocs-storagecluster-ceph-rbd; ocp-cclm prefers external RBD.
+cclm_acs_storage_class: "{{ cclm_odf_storage_class }}"
+cclm_acs_central_db_size: 100Gi
+cclm_acs_scanner_v4_db_size: 50Gi
+
+# --- Kube Descheduler ---
+cclm_descheduler_name: cluster
+cclm_descheduler_namespace: openshift-kube-descheduler-operator
+cclm_descheduler_interval_seconds: 60
+cclm_descheduler_mode: Automatic
+cclm_descheduler_profiles:
+  - KubeVirtRelieveAndMigrate
+cclm_descheduler_eviction_limits:
+  node: 2
+  total: 5
+cclm_descheduler_profile_customizations:
+  devActualUtilizationProfile: PrometheusCPUMemoryCombinedProfile
+  devDeviationThresholds: AsymmetricMedium
+  devEnableEvictionsInBackground: true
+  devEnableSoftTainter: true
+  namespaces: {}
+# PSI via MachineConfig (psi=1). Include master for SNO/compact (dest); worker
+# for multi-node source. Node reboot required — allow ~45m per pool.
+cclm_descheduler_psi_mcp_roles:
+  - master
+  - worker
+cclm_descheduler_psi_mcp_retries: 90
+cclm_descheduler_psi_mcp_delay: 30
+
+# --- Ansible Automation Platform ---
+cclm_aap_namespace: aap
+cclm_aap_name: aap
+cclm_aap_spec:
+  controller:
+    disabled: false
+  eda:
+    disabled: false
+  hub:
+    disabled: true
+  lightspeed:
+    disabled: true
+  gateway_tls_enabled: false
+  gateway_tls_secret_name: ""
+  image_pull_policy: IfNotPresent
+  no_log: true
+  redis_mode: standalone
+  route_tls_termination_mechanism: Edge

@@ -1,0 +1,77 @@
+---
+# KubeVirtRelieveAndMigrate needs PSI on nodes that run VMs.
+# OpenShift disables PSI by default (CONFIG_PSI_DEFAULT_DISABLED); enable via
+# kernel arg psi=1. Use a 99- prefix so this sorts after lower-numbered MCs.
+# See OKD virt docs: enabling descheduler evictions / PSI MachineConfig.
+- name: Set cluster API context for PSI on {{ cclm_cluster_name }}
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Ensure PSI MachineConfig {{ cclm_cluster_name ~ '/' ~ cclm_psi_mcp_role }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: machineconfiguration.openshift.io/v1
+      kind: MachineConfig
+      metadata:
+        name: "99-openshift-machineconfig-{{ cclm_psi_mcp_role }}-psi-karg"
+        labels:
+          machineconfiguration.openshift.io/role: "{{ cclm_psi_mcp_role }}"
+          platform.kubevirt.io/managed-by: virt-platform-autopilot
+      spec:
+        kernelArguments:
+          - psi=1
+  loop: "{{ cclm_descheduler_psi_mcp_roles }}"
+  loop_control:
+    loop_var: cclm_psi_mcp_role
+    label: "{{ cclm_cluster_name }}/{{ cclm_psi_mcp_role }}"
+
+# Wait until each pool has absorbed the PSI MachineConfig and is quiescent.
+# Checking status.configuration.source avoids racing a still-Updated pool before
+# MCO starts rolling. Empty pools (SNO worker=0) still list the MC in source.
+- name: Wait for PSI MachineConfigPool Updated {{ cclm_cluster_name ~ '/' ~ cclm_psi_mcp_role }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: machineconfiguration.openshift.io/v1
+    kind: MachineConfigPool
+    name: "{{ cclm_psi_mcp_role }}"
+  register: cclm_psi_mcp
+  retries: "{{ cclm_descheduler_psi_mcp_retries }}"
+  delay: "{{ cclm_descheduler_psi_mcp_delay }}"
+  until: >-
+    cclm_psi_mcp.resources | default([]) | length > 0
+    and (
+      '99-openshift-machineconfig-' ~ cclm_psi_mcp_role ~ '-psi-karg'
+      in (
+        cclm_psi_mcp.resources[0].status.configuration.source
+        | default([])
+        | map(attribute='name')
+        | list
+      )
+    )
+    and (
+      cclm_psi_mcp.resources[0].status.conditions
+      | default([])
+      | selectattr('type', 'equalto', 'Updated')
+      | selectattr('status', 'equalto', 'True')
+      | list
+      | length > 0
+    )
+    and (
+      cclm_psi_mcp.resources[0].status.conditions
+      | default([])
+      | selectattr('type', 'equalto', 'Updating')
+      | selectattr('status', 'equalto', 'False')
+      | list
+      | length > 0
+    )
+  loop: "{{ cclm_descheduler_psi_mcp_roles }}"
+  loop_control:
+    loop_var: cclm_psi_mcp_role
+    label: "{{ cclm_cluster_name }}/{{ cclm_psi_mcp_role }}"

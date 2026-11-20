@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: troshka_workload_cclm_operators
+  author: RHDP
+  description: Install CCLM prerequisite OLM operators on source and destination clusters.
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.16"
+  platforms: []
+  galaxy_tags:
+    - ocp
+    - cclm
+    - operators
+dependencies:
+  - role: troshka_workload_cclm_common

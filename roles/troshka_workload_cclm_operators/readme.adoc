@@ -1,0 +1,18 @@
+= troshka_workload_cclm_operators
+
+Installs the CCLM lab operator set on each cluster in `cclm_target_clusters`
+via OLM subscriptions (ACM, MCE, AAP, CNV, MTV, ODF, Submariner, nmstate,
+cert-manager, MetalLB, Compliance, workload-availability, RHACS, NetObserv,
+Loki, Observability, Web Terminal, and DevWorkspace).
+
+ODF is installed with a single `odf-operator` Subscription. Dependent packages
+(`ocs-operator`, `rook-ceph-operator`, `odf-csi-addons-operator`, …) are pulled
+by OLM — listing them separately creates duplicate Subscriptions and
+`ConstraintsNotSatisfiable` resolution failures.
+
+Each entry pins `source` to the CatalogSource observed on the source cluster
+(`redhat-operators` or supplemental `redhat-operators-v4-22`).
+
+Expects the openshift-workloads `clusters` dict (`api_url` + `api_token` per cluster key).
+For Troshka ad-hoc runs, pin `feat/cclm-workloads` in `requirements_content` and target
+both clusters (or run once per cluster with `target_map.cluster_id`).

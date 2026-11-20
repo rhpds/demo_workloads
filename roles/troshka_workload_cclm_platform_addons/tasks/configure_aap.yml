@@ -1,0 +1,32 @@
+---
+# Golden: files/golden/ansibleautomationplatform.yaml (Troshka 9aff0579 source).
+- name: Ensure AAP namespace {{ cclm_aap_namespace }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cclm_aap_namespace }}"
+
+# Parent CR only — operator creates AutomationController / EDA children.
+# Do not stamp live controller secrets or cluster-specific public_base_url.
+- name: Ensure AnsibleAutomationPlatform {{ cclm_aap_namespace ~ '/' ~ cclm_aap_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: aap.ansible.com/v1alpha1
+      kind: AnsibleAutomationPlatform
+      metadata:
+        name: "{{ cclm_aap_name }}"
+        namespace: "{{ cclm_aap_namespace }}"
+        labels:
+          app.kubernetes.io/name: aap
+          app.kubernetes.io/part-of: aap
+      spec: "{{ cclm_aap_spec }}"

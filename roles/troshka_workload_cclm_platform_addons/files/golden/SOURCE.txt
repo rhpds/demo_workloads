@@ -1,0 +1,7 @@
+Golden operand CRs captured from Troshka project 9aff0579
+(Beyond the Basics) source cluster on 2026-11-20.
+
+Applied by troshka_workload_cclm_platform_addons.
+ACS PVC storageClassName in central.yaml reflects the gold cluster
+(ocs-storagecluster-ceph-rbd); the role overrides to cclm_acs_storage_class
+at apply time (default: cclm_odf_storage_class / external RBD for ocp-cclm).

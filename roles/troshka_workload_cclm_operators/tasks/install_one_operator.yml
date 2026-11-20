@@ -1,0 +1,157 @@
+---
+- name: Ensure namespace {{ cclm_operator.namespace }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cclm_operator.namespace }}"
+
+- name: Ensure OperatorGroup {{ cclm_operator.operatorgroup }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition: "{{ _cclm_operatorgroup_def }}"
+  vars:
+    _cclm_operatorgroup_def:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: "{{ cclm_operator.operatorgroup }}"
+        namespace: "{{ cclm_operator.namespace }}"
+      spec: "{{ _cclm_operatorgroup_spec }}"
+    _cclm_operatorgroup_spec: >-
+      {{
+        {}
+        if not (cclm_operator.target_namespaces | default([]) | length > 0)
+        else {'targetNamespaces': cclm_operator.target_namespaces}
+      }}
+
+# OLM may already own this package under a generated Subscription name
+# (e.g. odf-csi-addons-operator-stable-4.22-redhat-operators-…). Creating a
+# second Sub for the same package causes ConstraintsNotSatisfiable.
+- name: List existing Subscriptions in {{ cclm_operator.namespace }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    namespace: "{{ cclm_operator.namespace }}"
+  register: cclm_operator_subs_ns
+
+- name: Set package already-installed fact — {{ cclm_operator.package }}
+  ansible.builtin.set_fact:
+    cclm_operator_existing_subs: >-
+      {{
+        cclm_operator_subs_ns.resources
+        | default([])
+        | selectattr('spec.name', 'defined')
+        | selectattr('spec.name', 'equalto', cclm_operator.package)
+        | list
+      }}
+    cclm_operator_package_ready: >-
+      {{
+        cclm_operator_subs_ns.resources
+        | default([])
+        | selectattr('spec.name', 'defined')
+        | selectattr('spec.name', 'equalto', cclm_operator.package)
+        | selectattr('status.installedCSV', 'defined')
+        | rejectattr('status.installedCSV', 'equalto', none)
+        | rejectattr('status.installedCSV', 'equalto', '')
+        | selectattr('status.state', 'defined')
+        | selectattr('status.state', 'equalto', 'AtLatestKnown')
+        | list
+        | length > 0
+      }}
+
+- name: Subscribe operator — {{ cclm_cluster_name ~ '/' ~ cclm_operator.package }}
+  when: not (cclm_operator_package_ready | bool)
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: "{{ cclm_operator.package }}"
+        namespace: "{{ cclm_operator.namespace }}"
+      spec:
+        channel: "{{ cclm_operator.channel }}"
+        installPlanApproval: Automatic
+        name: "{{ cclm_operator.package }}"
+        source: "{{ cclm_operator.source | default(cclm_operator_source) }}"
+        sourceNamespace: "{{ cclm_operator.sourceNamespace | default(cclm_operator_source_namespace) }}"
+
+# Wait on any Subscription for this package (ours or OLM-generated), then its CSV.
+# Avoid operators.coreos.com/<package>.<namespace> labels — name-parts >63 bytes
+# are truncated by OLM and make untruncated selectors invalid.
+- name: Wait for package Subscription AtLatestKnown — {{ cclm_cluster_name ~ '/' ~ cclm_operator.package }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    namespace: "{{ cclm_operator.namespace }}"
+  register: cclm_operator_subs_wait
+  retries: "{{ cclm_operator_csv_wait_retries }}"
+  delay: "{{ cclm_operator_csv_wait_delay }}"
+  until: >-
+    {{
+      cclm_operator_subs_wait.resources
+      | default([])
+      | selectattr('spec.name', 'defined')
+      | selectattr('spec.name', 'equalto', cclm_operator.package)
+      | selectattr('status.installedCSV', 'defined')
+      | rejectattr('status.installedCSV', 'equalto', none)
+      | rejectattr('status.installedCSV', 'equalto', '')
+      | selectattr('status.state', 'defined')
+      | selectattr('status.state', 'equalto', 'AtLatestKnown')
+      | list
+      | length > 0
+    }}
+
+- name: Resolve installedCSV for {{ cclm_operator.package }}
+  ansible.builtin.set_fact:
+    cclm_operator_installed_csv: >-
+      {{
+        (
+          cclm_operator_subs_wait.resources
+          | default([])
+          | selectattr('spec.name', 'defined')
+          | selectattr('spec.name', 'equalto', cclm_operator.package)
+          | selectattr('status.installedCSV', 'defined')
+          | rejectattr('status.installedCSV', 'equalto', none)
+          | rejectattr('status.installedCSV', 'equalto', '')
+          | selectattr('status.state', 'defined')
+          | selectattr('status.state', 'equalto', 'AtLatestKnown')
+          | map(attribute='status.installedCSV')
+          | list
+          | first
+        )
+      }}
+
+- name: Wait for operator CSV Succeeded — {{ cclm_cluster_name ~ '/' ~ cclm_operator.package }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ cclm_operator_installed_csv }}"
+    namespace: "{{ cclm_operator.namespace }}"
+  register: cclm_operator_csv
+  retries: "{{ cclm_operator_csv_wait_retries }}"
+  delay: "{{ cclm_operator_csv_wait_delay }}"
+  until:
+    - cclm_operator_csv.resources | default([]) | length > 0
+    - cclm_operator_csv.resources[0].status.phase | default('') == 'Succeeded'

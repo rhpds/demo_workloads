@@ -1,0 +1,130 @@
+---
+# Golden: files/golden/central.yaml + securedcluster.yaml (Troshka 9aff0579 source).
+# storageClassName overridden to cclm_acs_storage_class (external RBD on ocp-cclm).
+- name: Ensure ACS namespace {{ cclm_acs_namespace }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cclm_acs_namespace }}"
+
+- name: Ensure ACS Central {{ cclm_acs_namespace ~ '/' ~ cclm_acs_central_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: platform.stackrox.io/v1alpha1
+      kind: Central
+      metadata:
+        name: "{{ cclm_acs_central_name }}"
+        namespace: "{{ cclm_acs_namespace }}"
+      spec:
+        central:
+          db:
+            isEnabled: Default
+            persistence:
+              persistentVolumeClaim:
+                claimName: central-db
+                size: "{{ cclm_acs_central_db_size }}"
+                storageClassName: "{{ cclm_acs_storage_class }}"
+            resources:
+              limits:
+                cpu: "2"
+                memory: 4Gi
+              requests:
+                cpu: 500m
+                memory: 1Gi
+          exposure:
+            route:
+              enabled: true
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+        scanner:
+          analyzer:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 2500Mi
+              requests:
+                cpu: 200m
+                memory: 500Mi
+            scaling:
+              autoScaling: Disabled
+              replicas: 1
+          db:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 2500Mi
+              requests:
+                cpu: 200m
+                memory: 512Mi
+          scannerComponent: Disabled
+        scannerV4:
+          db:
+            persistence:
+              persistentVolumeClaim:
+                claimName: scanner-v4-db
+                size: "{{ cclm_acs_scanner_v4_db_size }}"
+                storageClassName: "{{ cclm_acs_storage_class }}"
+            resources:
+              limits:
+                cpu: "1"
+                memory: 2500Mi
+              requests:
+                cpu: 200m
+                memory: 512Mi
+          indexer:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 2500Mi
+              requests:
+                cpu: 200m
+                memory: 500Mi
+            scaling:
+              autoScaling: Disabled
+              replicas: 1
+          matcher:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 2500Mi
+              requests:
+                cpu: 200m
+                memory: 500Mi
+            scaling:
+              autoScaling: Disabled
+              replicas: 1
+          scannerComponent: Enabled
+
+- name: Ensure ACS SecuredCluster {{ cclm_acs_namespace ~ '/' ~ cclm_acs_secured_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: platform.stackrox.io/v1alpha1
+      kind: SecuredCluster
+      metadata:
+        name: "{{ cclm_acs_secured_cluster_name }}"
+        namespace: "{{ cclm_acs_namespace }}"
+      spec:
+        centralEndpoint: "{{ cclm_acs_central_endpoint }}"
+        clusterName: "{{ cclm_acs_cluster_name }}"
+        perNode:
+          collector:
+            collection: CORE_BPF

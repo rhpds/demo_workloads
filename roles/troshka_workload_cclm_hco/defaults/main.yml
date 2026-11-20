@@ -1,0 +1,17 @@
+---
+cclm_hco_name: kubevirt-hyperconverged
+cclm_hco_namespace: openshift-cnv
+cclm_hco_lm_network: lm-network
+
+cclm_hco_live_migration_config:
+  network: "{{ cclm_hco_lm_network }}"
+  completionTimeoutPerGiB: 800
+  parallelMigrationsPerCluster: 5
+  parallelOutboundMigrationsPerNode: 2
+  progressTimeout: 150
+
+cclm_hco_feature_gates:
+  decentralizedLiveMigration: true
+
+cclm_hco_ready_retries: 60
+cclm_hco_ready_delay: 20

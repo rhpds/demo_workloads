@@ -1,0 +1,11 @@
+apiVersion: platform.stackrox.io/v1alpha1
+kind: SecuredCluster
+metadata:
+  name: stackrox-secured-cluster-services
+  namespace: stackrox
+spec:
+  centralEndpoint: 'central.stackrox.svc:443'
+  clusterName: beyond-source
+  perNode:
+    collector:
+      collection: CORE_BPF

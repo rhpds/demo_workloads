@@ -1,0 +1,7 @@
+---
+- name: Install CCLM operators on each cluster
+  ansible.builtin.include_tasks: install_cluster_operators.yml
+  loop: "{{ cclm_target_clusters }}"
+  loop_control:
+    loop_var: cclm_cluster_name
+    label: "{{ cclm_cluster_name }}"

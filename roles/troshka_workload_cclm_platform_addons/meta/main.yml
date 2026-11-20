@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: troshka_workload_cclm_platform_addons
+  author: RHDP
+  description: >-
+    Apply ACM MultiClusterHub, RHACS Central/SecuredCluster, KubeDescheduler,
+    and Ansible Automation Platform CRs mirrored from the CCLM source cluster.
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.16"
+  platforms: []
+  galaxy_tags:
+    - ocp
+    - cclm
+    - acm
+    - acs
+    - aap
+dependencies:
+  - role: troshka_workload_cclm_common

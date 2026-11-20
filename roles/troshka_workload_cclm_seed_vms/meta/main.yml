@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: troshka_workload_cclm_seed_vms
+  author: RHDP
+  description: Create MTV target namespaces and an optional demo VM on the source cluster.
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.16"
+  platforms: []
+  galaxy_tags:
+    - ocp
+    - cclm
+    - mtv
+dependencies:
+  - role: troshka_workload_cclm_common

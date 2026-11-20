@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: troshka_workload_cclm_hco
+  author: RHDP
+  description: Configure HyperConverged for decentralized live migration on CCLM clusters.
+  license: GPL-2.0-or-later
+  min_ansible_version: "2.16"
+  platforms: []
+  galaxy_tags:
+    - ocp
+    - cclm
+    - cnv
+dependencies:
+  - role: troshka_workload_cclm_common

@@ -1,0 +1,50 @@
+---
+# Golden: files/golden/multiclusterhub.yaml (Troshka 9aff0579 source).
+- name: Ensure open-cluster-management namespace
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ cclm_mch_namespace }}"
+
+- name: Ensure MultiClusterHub {{ cclm_mch_namespace ~ '/' ~ cclm_mch_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: operator.open-cluster-management.io/v1
+      kind: MultiClusterHub
+      metadata:
+        name: "{{ cclm_mch_name }}"
+        namespace: "{{ cclm_mch_namespace }}"
+        annotations: "{{ cclm_mch_annotations }}"
+      spec:
+        availabilityConfig: "{{ cclm_mch_availability_config }}"
+        localClusterName: "{{ cclm_mch_local_cluster_name }}"
+        overrides:
+          components: "{{ cclm_mch_components }}"
+
+- name: Wait for MultiClusterHub Running
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: operator.open-cluster-management.io/v1
+    kind: MultiClusterHub
+    name: "{{ cclm_mch_name }}"
+    namespace: "{{ cclm_mch_namespace }}"
+  register: cclm_mch
+  retries: "{{ cclm_mch_ready_retries }}"
+  delay: "{{ cclm_mch_ready_delay }}"
+  until: >-
+    {{
+      (cclm_mch.resources | default([]) | length > 0)
+      and ((cclm_mch.resources[0].status.phase | default('')) == 'Running')
+    }}

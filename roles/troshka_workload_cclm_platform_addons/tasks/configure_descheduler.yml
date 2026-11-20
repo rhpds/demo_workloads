@@ -1,0 +1,29 @@
+---
+- name: Set cluster API context for descheduler on {{ cclm_cluster_name }}
+  ansible.builtin.include_role:
+    name: troshka_workload_cclm_common
+    tasks_from: set_cluster_context.yml
+
+- name: Ensure KubeDescheduler {{ cclm_cluster_name ~ '/' ~ cclm_descheduler_namespace ~ '/' ~ cclm_descheduler_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: operator.openshift.io/v1
+      kind: KubeDescheduler
+      metadata:
+        name: "{{ cclm_descheduler_name }}"
+        namespace: "{{ cclm_descheduler_namespace }}"
+        labels:
+          platform.kubevirt.io/managed-by: virt-platform-autopilot
+      spec:
+        deschedulingIntervalSeconds: "{{ cclm_descheduler_interval_seconds }}"
+        evictionLimits: "{{ cclm_descheduler_eviction_limits }}"
+        logLevel: Normal
+        managementState: Managed
+        mode: "{{ cclm_descheduler_mode }}"
+        operatorLogLevel: Normal
+        profileCustomizations: "{{ cclm_descheduler_profile_customizations }}"
+        profiles: "{{ cclm_descheduler_profiles }}"

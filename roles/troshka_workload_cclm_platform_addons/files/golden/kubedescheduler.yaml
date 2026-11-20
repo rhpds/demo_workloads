@@ -1,0 +1,24 @@
+apiVersion: operator.openshift.io/v1
+kind: KubeDescheduler
+metadata:
+  name: cluster
+  namespace: openshift-kube-descheduler-operator
+  labels:
+    platform.kubevirt.io/managed-by: virt-platform-autopilot
+spec:
+  deschedulingIntervalSeconds: 60
+  evictionLimits:
+    node: 2
+    total: 5
+  logLevel: Normal
+  managementState: Managed
+  mode: Automatic
+  operatorLogLevel: Normal
+  profileCustomizations:
+    devActualUtilizationProfile: PrometheusCPUMemoryCombinedProfile
+    devDeviationThresholds: AsymmetricMedium
+    devEnableEvictionsInBackground: true
+    devEnableSoftTainter: true
+    namespaces: {}
+  profiles:
+    - KubeVirtRelieveAndMigrate

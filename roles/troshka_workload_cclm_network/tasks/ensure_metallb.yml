@@ -1,0 +1,33 @@
+---
+# metallb-operator CSV alone does not deploy speakers — the MetalLB singleton
+# must exist first (same pattern as ensure_nmstate.yml).
+- name: Ensure MetalLB singleton on {{ cclm_cluster_name }}
+  kubernetes.core.k8s:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    state: present
+    definition:
+      apiVersion: metallb.io/v1beta1
+      kind: MetalLB
+      metadata:
+        name: "{{ cclm_metallb_name }}"
+        namespace: "{{ cclm_metallb_namespace }}"
+      spec: {}
+
+- name: Wait for MetalLB speaker DaemonSet on {{ cclm_cluster_name }}
+  kubernetes.core.k8s_info:
+    host: "{{ cclm_k8s_host }}"
+    api_key: "{{ cclm_k8s_token }}"
+    validate_certs: "{{ cclm_k8s_validate_certs }}"
+    api_version: apps/v1
+    kind: DaemonSet
+    namespace: "{{ cclm_metallb_namespace }}"
+    name: speaker
+  register: cclm_metallb_speaker
+  retries: "{{ cclm_metallb_ready_retries }}"
+  delay: "{{ cclm_metallb_ready_delay }}"
+  until:
+    - cclm_metallb_speaker.resources is defined
+    - cclm_metallb_speaker.resources | length > 0
+    - (cclm_metallb_speaker.resources[0].status.numberReady | default(0) | int) >= 1

@@ -1,0 +1,22 @@
+= troshka_workload_cclm_seed_vms
+
+Creates workload namespaces and lab VMs for the CCLM / MTV exercises.
+
+== Namespaces
+
+`cclm_seed_vm_namespaces` (affinity, dynamic-schedule, fencing, hot-plug,
+live-migration, over-commit, source-cluster, vms-aap-day2, webapp-vms) are
+created on **every** cluster in `cclm_target_clusters` (source and destination)
+so live migration has matching target namespaces.
+
+Classic MTV namespaces from `cclm_vm_namespaces` (`source-cluster` /
+`destination-cluster` mapping) are also ensured on each target cluster.
+
+== VirtualMachines
+
+Every entry in `cclm_seed_vms` is created on the **source** cluster only.
+Disks use DataSources under `openshift-virtualization-os-images` (or blank
+volumes for the Windows placeholders). Storage classes match the live source
+cluster.
+
+Set `cclm_seed_vm_run: false` to create namespaces only (skip VM creation).
