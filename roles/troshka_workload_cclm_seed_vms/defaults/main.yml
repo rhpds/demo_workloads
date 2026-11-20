@@ -96,15 +96,6 @@ cclm_seed_vms:
     storage_class: ocs-external-storagecluster-ceph-rbd
     datasource_name: rhel10
     datasource_namespace: openshift-virtualization-os-images
-  - namespace: over-commit
-    name: overcommit-vm-2
-    cpu_cores: 1
-    memory: 2Gi
-    disk_size: 30Gi
-    run: true
-    storage_class: ocs-external-storagecluster-ceph-rbd
-    datasource_name: rhel9
-    datasource_namespace: openshift-virtualization-os-images
   - namespace: source-cluster
     name: cclm-demo-vm
     cpu_cores: 1
